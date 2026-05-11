@@ -1,5 +1,5 @@
 # conda activate /home/etu-admin/Desktop/Flavia/internship/cyu_tut
-# Gym docs: https://gymnasium.farama.org/environments/toy_text/frozen_lake/
+# Gym docs: https://gymnasium.farama.org/environments/toy_text/taxi/
 import numpy as np
 import gymnasium as gym
 import random
@@ -9,28 +9,28 @@ from IPython.display import Image
 
 # defining hyperparameters
 # training parameters
-n_training_episodes = 10000
-alpha = 0.7 # step_size parameter / learning rate   
+n_training_episodes = 25000
+alpha = 0.1 # step_size parameter / learning rate   
 
 # evaluation parameters
 n_eval_episodes = 100      
 
 # environment parameters
-env_id = "FrozenLake-v1"   
+env_id = "Taxi-v4"
 max_steps = 99             
-gamma = 0.95 # discount rate               
+gamma = 0.99 # discount rate               
 eval_seed = []             
 
 # exploration parameters
 max_epsilon = 1.0           
-min_epsilon = 0.05           
-decay_rate = 0.0005    
+min_epsilon = 0.01           
+decay_rate = 0.0001
 
 # to not visualize the training
 virtual_display = Display(visible=0, size=(1400, 900))
 virtual_display.start()
 
-env = gym.make("FrozenLake-v1",map_name="4x4",is_slippery=False, render_mode="rgb_array")
+env = gym.make(env_id, is_rainy=False, render_mode="rgb_array")
 
 # prints to get to know the environment / what we are working with
 print("Observation Space", env.observation_space)
@@ -76,7 +76,7 @@ def training (n_training_episodes, min_epsilon, max_epsilon, decay_rate, env, ma
 
     print("\n--- STARTING TRAINING ---")
     for episode in range (n_training_episodes):
-        # exponential decay of epsilon
+        # exponential decay of epsilo
         epsilon = min_epsilon + (max_epsilon - min_epsilon)*np.exp(-decay_rate*episode)
 
         # resetting environment
@@ -157,16 +157,16 @@ def record_video(env, Qtable, out_directory, fps=1):
     imageio.mimsave(out_directory, [np.array(img) for img in images], fps=fps)
     print("GIF saved")
 
-Q_table_lake = init_Q_table(state_space, action_space)
-Q_table_lake = training(n_training_episodes, min_epsilon, max_epsilon, decay_rate, env, max_steps, Q_table_lake)
+Q_table_taxi = init_Q_table(state_space, action_space)
+Q_table_taxi = training(n_training_episodes, min_epsilon, max_epsilon, decay_rate, env, max_steps, Q_table_taxi)
 
-print(" Final Q-Table:\n", Q_table_lake)
+print(" Final Q-Table:\n", Q_table_taxi)
 
-mean_reward, std_reward = evaluate_agent(env, max_steps, n_eval_episodes, Q_table_lake, eval_seed)
+mean_reward, std_reward = evaluate_agent(env, max_steps, n_eval_episodes, Q_table_taxi, eval_seed)
 print(f"Results: Mean_reward={mean_reward:.2f} +/- {std_reward:.2f}")
 
-video_path="replay.gif"
+video_path="replay_taxi.gif"
 video_fps=1
-record_video(env, Q_table_lake, video_path, video_fps)
+record_video(env, Q_table_taxi, video_path, video_fps)
 
-Image(filename='./replay.gif')
+Image(filename='./replay_taxi.gif')
