@@ -9,10 +9,36 @@ import matplotlib.pyplot as plt
 n_training_eps = 500
 steps_eps = 200
 
-class DynaQAgent:
-    def __init__(self, alpha=0.1, gamma=0.95, epsilon_start=1, epsilon_end = 0.05,
-                 epsilon_decay = 0.005, planning_steps=10, env_id = "CliffWalking-v0"):
-        self.env = gym.make(env_id, render_mode="rgb_array")
+class DynaQAgent():
+    """
+    Dyna-Q (and Dyna-Q+) tabular agent.
+ 
+    Args:
+        plus          : enable Dyna-Q+ exploration bonus
+        env           : gymnasium environment instance
+        k             : Dyna-Q+ bonus coefficient
+        alpha         : Q-learning step size
+        gamma         : discount factor
+        epsilon_start : initial ε for ε-greedy policy
+        epsilon_end   : minimum ε after decay
+        epsilon_decay : exponential decay rate
+        planning_steps: simulated updates per real step
+    """
+
+    def __init__(
+        self,
+        env,
+        plus: bool = False,
+        k: float = 1e-4,
+        alpha: float = 0.1,
+        gamma: float = 0.95,
+        epsilon_start: float = 1.0,
+        epsilon_end: float = 0.05,
+        epsilon_decay: float = 0.005,
+        planning_steps: int = 10,
+    ):
+
+        self.env = env
         self.states = self.env.observation_space.n
         self.actions = self.env.action_space.n
         self.alpha = alpha
@@ -21,12 +47,24 @@ class DynaQAgent:
         self.epsilon_end = epsilon_end
         self.epsilon_decay = epsilon_decay
         self.planning_steps = planning_steps
-        
+        self.plus = plus
         self.q_table = np.zeros((self.states, self.actions))
-        self.model = {}
+        self.model: dict[tuple[int, int], tuple[float, int]] = {}
+
+        if self.plus:
+            self.k = k
+            self.timestep: int = 0
+            self.last_visit = np.zeros((self.states, self.actions))
 
     # functions
+    def e_greedy(self, state, epsilon):
+        """epsilon-greedy action selection"""
+        if np.random.rand() > epsilon:
+            return int(np.argmax(self.q_table[state]))
+        return self.env.action_space.sample()
+
     def q_update(self, state, action, reward, next_state):
+        """one-step Q-learning update"""
         self.q_table[state, action] += self.alpha * (
             reward + self.gamma * np.max(self.q_table[next_state]) - self.q_table[state, action]
             )
@@ -34,25 +72,25 @@ class DynaQAgent:
     def update_model(self, state, action, next_state, reward):
         self.model[(state, action)] = (reward, next_state)
 
+        if self.plus:
+            self.timestep += 1
+            self.last_visit[state, action] = self.timestep
+
     def epsilon_exp_decay(self, eps):
         return self.epsilon_end + (self.epsilon_start - self.epsilon_end) * np.exp(- self.epsilon_decay * eps)
-
-    def e_greedy(self, state, epsilon):
-        if np.random.rand() > epsilon:
-            action = np.argmax(self.q_table[state])
-        else:
-            action = self.env.action_space.sample()
-
-        return action
 
     def planning(self):
         for _ in range(self.planning_steps):
             # randomly sample a state and action from the model
-            state, action = random.choice(list(self.model.keys()))
+            state, action = random.choice(list(self.model))
             reward, next_state = self.model[(state, action)]
+            # adding dyna q+ option
+            if self.plus:
+                tau = self.timestep - self.last_visit[state][action]
+                reward += self.k * np.sqrt(tau)
             # update q_table
             self.q_update(state, action, reward, next_state)
-
+            
 def train(agent, n_training_eps, steps_eps):
     episode_rewards = []
     episode_lengths = []
@@ -92,9 +130,12 @@ def train(agent, n_training_eps, steps_eps):
     return agent.q_table, episode_rewards, episode_lengths, epsilons
 
 
-def plot_results(episode_rewards, episode_lengths, epsilons, q_table, window=20):
+def plot_results(agent, episode_rewards, episode_lengths, epsilons, q_table, window=20):
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-    fig.suptitle("Dyna-Q on CliffWalking", fontsize=14, fontweight="bold")
+    if agent.plus:
+        fig.suptitle("Dyna-Q+ on CliffWalking", fontsize=14, fontweight="bold")
+    else:
+        fig.suptitle("Dyna-Q on CliffWalking", fontsize=14, fontweight="bold")
 
     # 1. Reward per episode + smoothed
     ax = axes[0, 0]
@@ -156,14 +197,19 @@ def plot_results(episode_rewards, episode_lengths, epsilons, q_table, window=20)
                     ha="center", va="center", fontsize=11)
 
     plt.tight_layout()
-    plt.savefig("dyna_q_results.png", dpi=150, bbox_inches="tight")
+    if agent.plus:
+        plt.savefig("dyna_q_plus_results.png", dpi=150, bbox_inches="tight")
+    else:
+        plt.savefig("dyna_q_results.png", dpi=150, bbox_inches="tight")
     plt.show()
 
 
 if __name__ == "__main__":
+    #define environment
+    env_id = "CliffWalking-v1"
     # define agent
-    agent = DynaQAgent()
+    agent = DynaQAgent(plus = False, env = gym.make(env_id, render_mode="rgb_array"))
     # train agent
     q_table, rewards, lengths, epsilons = train(agent, n_training_eps, steps_eps)
-    plot_results(rewards, lengths, epsilons, q_table)
+    plot_results(agent, rewards, lengths, epsilons, q_table)
     
