@@ -8,10 +8,12 @@ import agent
 
 if __name__ == "__main__":
 
+    """change update mode here"""
     mode = "relative" # "std", "std_punish", "opposite", "relative", "relative_punish"
 
-    if mode in ["std", "relative"]:
-        reward_schedule = (1, 0, 0) #goal, hole, step/frozen
+    """change rewards/punishments here"""
+    if mode in ["std", "relative"]: # the positive cases
+        reward_schedule = (1, 0, 0) # goal, hole, step/frozen
     else:
         reward_schedule = (-1, 0, 0)
 
@@ -24,6 +26,7 @@ if __name__ == "__main__":
                    **env_kwargs
                 )
     
+    """change agent variables here"""
     agent = agent.QLearningAgent(env,
                                  mode = mode, 
                                  training_episodes=2500,
@@ -40,7 +43,7 @@ if __name__ == "__main__":
  
     agent.train()
     
+    # plots
     agent.plot_training(path=f"./plus_minus_q_learning/training_summary_{agent.mode}.png", grid_size=4)
+    # gif of a greedy episode
     agent.record_gif(env_id, env_kwargs, path=f"./plus_minus_q_learning/agent_episode_{agent.mode}.gif", fps=3)
-
-env = gym.make(env_id, render_mode="rgb_array")

@@ -203,6 +203,7 @@ class QLearningAgent():
  
         # subplot 2
         ax = axes[0, 1]
+        ax.set_ylim(0, 25)
         ax.plot(eps_x, lengths, alpha=0.35, color='darkorange', linewidth=0.8, label='Length')
         ax.plot(ma_x, moving_avg(lengths, window), color='darkorange', linewidth=2,
                 label=f'Moving avg ({window})')
