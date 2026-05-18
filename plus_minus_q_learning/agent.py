@@ -375,13 +375,13 @@ class QLearningAgent():
  
         grid_policy = policy.reshape(grid_size, grid_size)
  
-        # read the actual map from the env (---works for any custom map too)
+        # reading the actual map from the env
         desc = self.env.unwrapped.desc.astype(str)   # shape (grid_size, grid_size)
  
-        bg = {'S': '#d4edda',   # start
-              'F': '#f8f9fa',   # frozen
-              'H': '#adb5bd',   # hole
-              'G': '#fff3cd'}   # goal
+        bg = {'S': '#d4edda', # start
+              'F': '#f8f9fa', # frozen
+              'H': '#adb5bd', # hole
+              'G': '#fff3cd'} # goal
  
         ax.set_xlim(-0.5, grid_size - 0.5)
         ax.set_ylim(-0.5, grid_size - 0.5)
