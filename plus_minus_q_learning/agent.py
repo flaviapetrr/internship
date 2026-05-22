@@ -79,19 +79,22 @@ class QLearningAgent():
             #    if any(ns != s for prob, ns, r, done in self.env.unwrapped.P[s][a])
             # ]
         
-        self.reward_shift_ep             = reward_shift_ep
-        self.shift_env_fn                = shift_env_fn
-        self.shift_happened_ep           = None   # actual episode when env was swapped
-        self.first_success_ep            = None   # first episode reaching goal
-        self.first_success_after_shift_ep = None  # first success on the new goal
+        self.reward_shift_ep = reward_shift_ep
+        self.shift_env_fn = shift_env_fn
+        self.shift_happened_ep = None # actual episode when env was swapped
+        self.first_success_ep = None # first episode reaching goal
+        self.five_success_ep = None # fifth time reaching goal ep         
+        self.first_success_after_shift_ep = None # first success on the new goal
+        self.five_success_after_shift_ep = None # fifth time reaching goal ep 
  
+        self.success_count = 0
+        self.success_after_shift_count = 0
         # Q-value snapshots: key → (episode_nr, q_table_copy, desc_copy)
-        # Keys: "first_goal", "first_goal_p10",
-        #       "at_shift", "first_new_goal", "first_new_goal_p10",
+        # Keys: "first_goal", "first_goal_p10", "5_times_goal",
+        #       "at_shift", "first_new_goal", "first_new_goal_p10", "5_times_new_goal",
         #       "final"
         self.q_snapshots = {}
 
-        
         self.episode_memory = []
         
         self.model = {}
@@ -177,7 +180,7 @@ class QLearningAgent():
         return self.epsilon_end + (self.epsilon_start - self.epsilon_end) * np.exp(- self.epsilon_decay * episode)
     
     def _save_snapshot(self, key, episode):
-        """Save a copy of the current q_table + env desc under `key`."""
+        """Save a copy of the current q_table + env desc under key"""
         self.q_snapshots[key] = (
             episode,
             self.q_table.copy(),
@@ -283,8 +286,13 @@ class QLearningAgent():
             is_success = (total_reward > 0) if self.mode in ["std", "relative"] else (total_reward < 0)
             self.episode_success.append(1 if is_success else 0)
             
-            # ---- SNAPSHOT LOGIC ----
-            # First ever goal
+            if is_success:
+                self.success_count += 1
+                if self.shift_happened_ep is not None and eps > self.shift_happened_ep:
+                    self.success_after_shift_count += 1
+
+            # shapshots
+            # first ever goal
             if self.first_success_ep is None and is_success:
                 self.first_success_ep = eps
                 self._save_snapshot("first_goal", eps)
@@ -294,7 +302,12 @@ class QLearningAgent():
                     and eps == self.first_success_ep + 10):
                 self._save_snapshot("first_goal_p10", eps)
  
-            # First success on the NEW goal (after shift)
+            # fifth time reaching  goal
+            if self.five_success_ep is None and self.success_count == 5:
+                self.five_success_ep = eps
+                self._save_snapshot("5_times_goal", eps)
+
+            # First success on the new goal (after shift)
             if (self.shift_happened_ep is not None
                     and self.first_success_after_shift_ep is None
                     and eps > self.shift_happened_ep
@@ -307,6 +320,12 @@ class QLearningAgent():
                     and eps == self.first_success_after_shift_ep + 10):
                 self._save_snapshot("first_new_goal_p10", eps)
  
+            # fifth time reaching new goal
+            if (self.five_success_after_shift_ep is None
+                    and self.success_after_shift_count == 5):
+                self.five_success_after_shift_ep = eps
+                self._save_snapshot("5_times_new_goal", eps)
+
         # Final snapshot
         self._save_snapshot("final", self.training_episodes - 1)
 

@@ -7,15 +7,20 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec, GridSpecFromSubplotSpec
 import agent
 import plot
+import gif
 
 # --------------- CHANGE CONFIG HERE ---------------
 
 RUN              = "single" # "single", "mode_comparison", "replay_comparison"
-FIXED_REPLAY     = "f_ps" # "none", "f_ps", "backward", "dyna" -> f_ps == forward_prioritized_sweeping
+FIXED_REPLAY     = "dyna" # "none", "f_ps", "backward", "dyna" -> f_ps == forward_prioritized_sweeping
 MODE             = "std" # "std", "std_punish", "opposite", "relative", "relative_punish"
 
 TRAINING_EPS     = 750
 EPISODE_STEPS    = 80
+
+REWARD_SHIFT_EP  = TRAINING_EPS // 2
+SHIFT_GOAL_POS   = (2, 8) 
+
 Q_INIT           = 0.0
 ALPHA            = 0.7
 ALPHA_V          = 0.7
@@ -26,9 +31,6 @@ EPS_DECAY        = 0.0005
 REPLAY_STEPS     = 20
 THETA            = 0.0001
 OUTDIR           = "./plus_minus_q_learning/visuals"
-
-REWARD_SHIFT_EP  = TRAINING_EPS // 2
-SHIFT_GOAL_POS   = (2, 8) 
 
 REPLAY_MODES = ["none", "forward", "backward", "dyna"]
 
@@ -152,8 +154,8 @@ def run_single(replay_mode):
         path=f"{OUTDIR}/plots/qvalue_snapshots/{MODE}_{replay_mode}.png",
         grid_size=GRID_SIZE,
     )
-
-#    plot.record_gif(agent,
+#
+#    gif.record_gif(agent,
 #        "FrozenLake-v1", EPISODE_STEPS, env_kwargs,
 #        path=f"{OUTDIR}/gifs/{MODE}.gif", fps=3
 #    )
@@ -163,13 +165,13 @@ def run_single(replay_mode):
 #        path=f"{OUTDIR}/trajectories/plots/test/{MODE}_{replay_mode}.png", grid_size=GRID_SIZE
 #    )
 #
-#    plot.plot_sampled_trajectories_gif(agent,
+#    gif.plot_sampled_trajectories_gif(agent,
 #        path=f"{OUTDIR}/trajectories/gifs/evolution/{MODE}_{replay_mode}.gif",
 #        grid_size=GRID_SIZE,
 #        fps=3
 #    )
 #    
-#    plot.swarm_gif(
+#    gif.swarm_gif(
 #        "FrozenLake-v1", EPISODE_STEPS, env_kwargs, num_agents=30, path=f"{OUTDIR}/trajectories/gifs/test/{MODE}_{replay_mode}.gif", grid_size=GRID_SIZE
 #    )
     
