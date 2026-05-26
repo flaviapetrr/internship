@@ -12,7 +12,7 @@ import gif
 # --------------- CHANGE CONFIG HERE ---------------
 
 RUN              = "single" # "single", "mode_comparison", "replay_comparison"
-FIXED_REPLAY     = "dyna" # "none", "f_ps", "backward", "dyna" -> f_ps == forward_prioritized_sweeping
+FIXED_REPLAY     = "backward" # "none", "f_ps", "backward", "dyna" -> f_ps == forward_prioritized_sweeping
 MODE             = "std" # "std", "std_punish", "opposite", "relative", "relative_punish"
 
 TRAINING_EPS     = 750
@@ -144,6 +144,11 @@ def run_single(replay_mode):
         plot.plot_replay_analysis(agent,
             path=f"{OUTDIR}/plots/replay_analysis/{MODE}_{replay_mode}.png",
         )
+        plot.plot_replay_trajectories(agent,
+            path=f"{OUTDIR}/plots/replay_trajectories/{MODE}_{replay_mode}.png",
+            grid_size=GRID_SIZE,
+        )
+
  
     plot.plot_training_evolution(agent,
         path=f"{OUTDIR}/trajectories/plots/evolution/{MODE}_{replay_mode}.png",

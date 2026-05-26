@@ -225,18 +225,18 @@ def plot_training(agent, path="training_summary.png", grid_size=10):
         
         else:
             nr = _heatmap(agent, grid_size, desc, initial_desc, ax_snap, q_table=agent.q_table, shifted=shifted)
-            ax_snap.set_title(f"Q-value ({nr} Q) - Snapshot")
+            ax_snap.set_title(f"First Goal Q-value Heatmap  |   {nr} Q = policy arrows")
         
         # subplot 4 - if shifted
         ax_final = axes[3]
         nr_final = _heatmap(agent, grid_size, desc, initial_desc, ax_final, q_table=agent.q_table, shifted=shifted)
-        ax_final.set_title(f"Q-value Heatmap    |   {nr_final} Q + policy arrows")
+        ax_final.set_title(f"Final Q-value Heatmap    |   {nr_final} Q + policy arrows")
 
     # subplot 3 
     else:
         ax_final = axes[2]
         nr = _heatmap(agent, grid_size, desc, initial_desc, ax_final, q_table=agent.q_table, shifted=shifted)
-        ax_final.set_title(f"Q-value Heatmap    |   {nr} Q + policy arrows")
+        ax_final.set_title(f"Final Q-value Heatmap    |   {nr} Q + policy arrows")
 
     plt.tight_layout()
     plt.savefig(path, dpi=150, bbox_inches='tight')
@@ -567,3 +567,108 @@ def plot_training_evolution(agent, path="training_evolution.png", grid_size=10):
     plt.close(fig)
     print(f"Training Evolution plot saved to {path}")
     
+#def plot_replay_trajs(agent):
+#
+#    if not agent.replay_paths:
+#        print("[plot_replay_trajectories] no replay paths stored - skipping")
+#        return
+#
+#    shifted = agent.shift_happened_ep is not None
+#    desc = agent.env.unwrapped.desc.astype(str)
+#    initial_desc = getattr(agent, 'initial_desc', desc)
+#
+#    if shifted:
+#        shift_ep = agent.shift_happened_ep
+#        shift_note = f" | goal shift at ep {shift_ep}"
+#
+#    nrows = 2 if shifted else 1
+#    fig, axes = plt.subplots(nrows, 3, figsize=(18, 6 * nrows))
+#    axes = np.array(axes).reshape(nrows, 3) 
+#
+#    title = (f"Replay Treajectories   |   mode={agent.mode} replay={agent.replay_mode}    |   episodes={agent.training_episodes}{shift_note}")
+#    fig.suptitle(title, fontsize=14, fontweight='bold')
+
+def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10, n_sample=8):
+    if getattr(agent, 'replay_paths', None) is None or not agent.replay_paths:
+        print("[plot_replay_trajectories] No replay paths stored - skipping")
+        return
+
+    shifted = agent.shift_happened_ep is not None
+    desc = agent.env.unwrapped.desc.astype(str)
+    initial_desc = getattr(agent, 'initial_desc', desc)
+
+    # 1. Campionamento di 8 episodi ben distribuiti
+    all_eps = [ep for ep, _ in agent.replay_paths]
+    indices = np.round(np.linspace(0, len(all_eps) - 1, min(n_sample, len(all_eps)))).astype(int)
+    sampled = [agent.replay_paths[i] for i in indices]
+
+    # 2. Creazione di un dizionario per trovare subito le traiettorie reali
+    agent_path_dict = {ep: path for ep, path in agent.sampled_paths}
+
+    n = len(sampled)
+    ncols = min(n, 4)
+    nrows = (n + ncols - 1) // ncols
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 5.5, nrows * 5.5), squeeze=False)
+
+    time_cmap = plt.colormaps['coolwarm']
+    replay_cmap = plt.colormaps['plasma']
+
+    title = f"Replay Trajectories  |  mode={agent.mode}  replay={agent.replay_mode}"
+    if shifted:
+        title += f"  |  goal shift @ ep {agent.shift_happened_ep}"
+    fig.suptitle(title, fontsize=14, fontweight='bold')
+
+    for idx, (eps_num, replay_trans) in enumerate(sampled):
+        ax = axes[idx // ncols, idx % ncols]
+
+        # Sfondo griglia usando il tuo helper!
+        panel_desc = initial_desc if (shifted and eps_num <= agent.shift_happened_ep) else desc
+        _draw_grid_bg(ax, grid_size, panel_desc, initial_desc, BG_COLORS, shifted=(shifted and eps_num > agent.shift_happened_ep))
+        ax.set_aspect('equal')
+        ax.invert_yaxis()
+
+        # 3. Disegna la traiettoria VERA dell'agente (linea tratteggiata grigia)
+        agent_path = agent_path_dict.get(eps_num, [])
+        if len(agent_path) > 1:
+            px = [s % grid_size for s in agent_path]
+            py = [s // grid_size for s in agent_path]
+            jx = np.array(px, float) + np.random.uniform(-0.08, 0.08, len(px))
+            jy = np.array(py, float) + np.random.uniform(-0.08, 0.08, len(py))
+            ax.plot(jx, jy, color='gray', alpha=0.55, linewidth=1.5, linestyle='--', zorder=2)
+            ax.scatter(jx[0], jy[0], color='green', s=40, zorder=4, alpha=0.8) # Partenza
+            ax.scatter(jx[-1], jy[-1], color='orange', s=40, zorder=4, alpha=0.8, marker='X') # Arrivo
+
+        # 4. Disegna i REPLAY (Frecce colorate)
+        n_trans = len(replay_trans)
+        for t_idx, (s, ns) in enumerate(replay_trans):
+            t = t_idx / max(n_trans - 1, 1) # Normalizza da 0.0 a 1.0
+            color = replay_cmap(t)
+            
+            sx, sy = s % grid_size, s // grid_size
+            nsx, nsy = ns % grid_size, ns // grid_size
+            
+            if sx == nsx and sy == nsy: # Ha sbattuto contro il muro nel modello
+                ax.scatter(sx, sy, s=15, color=color, alpha=0.6, zorder=3)
+            else:
+                ax.annotate(
+                    "", xy=(nsx + np.random.uniform(-0.05, 0.05), nsy + np.random.uniform(-0.05, 0.05)),
+                    xytext=(sx, sy),
+                    arrowprops=dict(arrowstyle="-|>", color=color, alpha=0.6, lw=1.2, mutation_scale=8),
+                    zorder=3
+                )
+
+        # Colora i bordi del pannello in base a quando è avvenuto l'episodio
+        border_color = time_cmap(eps_num / agent.training_episodes)
+        for spine in ax.spines.values():
+            spine.set_edgecolor(border_color)
+            spine.set_linewidth(3)
+        ax.set_title(f"Episode {eps_num}", fontsize=11, fontweight='bold', color=border_color)
+
+    # Nascondi i grafici vuoti se n_sample non è un multiplo di 4
+    for j in range(n, nrows * ncols):
+        axes[j // ncols, j % ncols].set_visible(False)
+
+    plt.tight_layout()
+    plt.savefig(path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"Replay trajectories plot saved to {path}")

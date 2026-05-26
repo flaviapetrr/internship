@@ -89,7 +89,7 @@ class QLearningAgent():
  
         self.success_count = 0
         self.success_after_shift_count = 0
-        # Q-value snapshots: key → (episode_nr, q_table_copy, desc_copy)
+        # Q-value snapshots: key -> (episode_nr, q_table_copy, desc_copy)
         # Keys: "first_goal", "first_goal_p10", "5_times_goal",
         #       "at_shift", "first_new_goal", "first_new_goal_p10", "5_times_new_goal",
         #       "final"
@@ -107,7 +107,8 @@ class QLearningAgent():
         self.episode_success = [] 
         self.replay_counts = []        
         self.model_sizes = []
-        self.sampled_paths = []   
+        self.sampled_paths = []
+        self.replay_paths = []
         self.state_visits = np.zeros(self.state_space)
 
     def reset(self):
@@ -212,6 +213,7 @@ class QLearningAgent():
             episode_replay_count = 0 
             self.episode_memory = []
             self.priority_queue = []
+            episode_replay_transitions = []
 
             current_path = [state]
             self.state_visits[state] += 1
@@ -256,24 +258,27 @@ class QLearningAgent():
                     heapq.heappush(self.priority_queue, (-td_error, (state, action)))
  
                 if self.replay_mode == "f_ps":
-                    self.prioritized_sweeping(self.replay_steps)
+                    trans = self.prioritized_sweeping(self.replay_steps)
+                    episode_replay_transitions.extend(trans)
                     episode_replay_count += self.replay_steps
-                    
+   
                 state = next_state
                 total_reward += reward
 
                 if self.replay_mode == "backward":
-                    self.backward_replay(self.replay_steps)
+                    trans = self.backward_replay(self.replay_steps)
+                    episode_replay_transitions.extend(trans)
                     episode_replay_count += min(self.replay_steps, len(self.episode_memory))
- 
+
             if self.replay_mode == "dyna":
-                self.dyna_replay(self.replay_steps)
-                episode_replay_count += self.replay_steps
+                trans = self.dyna_replay(self.replay_steps)
+                episode_replay_transitions.extend(trans)
+                episode_replay_count += self.replay_steps                
 
             if (eps + 1) % 100 == 0:
                 print("Episode: ", eps + 1)
 
-            # for trajectory potting 
+            # for trajectory plotting 
             self.sampled_paths.append((eps + 1, current_path))
 
             n_steps_done = step + 1
@@ -326,7 +331,7 @@ class QLearningAgent():
                 self.five_success_after_shift_ep = eps
                 self._save_snapshot("5_times_new_goal", eps)
 
-        # Final snapshot
+        # final snapshot
         self._save_snapshot("final", self.training_episodes - 1)
 
         print("--- COMPLETED ---\n")
@@ -338,9 +343,14 @@ class QLearningAgent():
         -> rapid learning
         """
         replay_batch = self.episode_memory[-n_steps:][::-1]
+        transitions = []
 
         for state, action, reward, next_state in replay_batch:
             self.q_table_update(state, action, reward, next_state)
+            transitions.append((state, next_state))
+
+        return transitions
+
 
     def prioritized_sweeping(self, n_steps=10):
         """
@@ -349,7 +359,8 @@ class QLearningAgent():
         -> planning
         """
         steps = 0
-       
+        transitions = []
+
         while self.priority_queue and steps < n_steps:
             # popping experience with max priority
             _, (state, action) = heapq.heappop(self.priority_queue)
@@ -370,13 +381,17 @@ class QLearningAgent():
                         best_next_q = np.min(self.q_table[state])
                     else:
                         best_next_q = np.max(self.q_table[state])
+
                     current_q = self.q_table[pre_state][pre_action]
                     td_error = abs(pre_reward + self.gamma * best_next_q - current_q)
 
                     if td_error > self.theta:
                         heapq.heappush(self.priority_queue, (-td_error, (pre_state, pre_action)))
-                        
+            
+            transitions.append((state, next_state))
+
             steps += 1
+        return transitions
 
     def dyna_replay(self, n_steps=10):
         """
@@ -388,9 +403,13 @@ class QLearningAgent():
             return
         import random
         states_with_model = list(self.model.keys())
+        transitions = []
 
         for _ in range(n_steps):
             s = random.choice(states_with_model)
             a = random.choice(list(self.model[s].keys()))
             reward, next_state = self.model[s][a]
             self.q_table_update(s, a, reward, next_state)
+            transitions.append((s, next_state))
+        
+        return transitions
