@@ -5,7 +5,7 @@ import io
 import numpy as np
 import matplotlib.pyplot as plt
 
-BG_COLORS = {'S': '#d4edda', 'F': '#f8f9fa', 'H': '#adb5bd', 'G': '#fff3cd', 'G2': '#ffd5cd'}
+BG_COLORS = {'S': '#d4edda', 'F': '#f8f9fa', 'H': '#adb5bd', 'G': '#fff3cd', 'G1': '#cdebff', 'G2': '#ffd5cd'}
 
 def record_gif(agent, env_id, max_steps, env_kwargs, path="agent_episode.gif", fps=4):
     """run one greedy episode"""
@@ -35,7 +35,7 @@ def swarm_gif(agent, env_id, max_steps, env_kwargs, num_agents=20, epsilon_test=
     desc = test_env.unwrapped.desc.astype(str)
     
     all_paths = []
-    max_steps = 0
+    max_path = 0
     
     # simulating all agents
     for _ in range(num_agents):
@@ -55,8 +55,8 @@ def swarm_gif(agent, env_id, max_steps, env_kwargs, num_agents=20, epsilon_test=
             path_coords.append((state % grid_size, state // grid_size))
             
         all_paths.append(path_coords)
-        if len(path_coords) > max_steps:
-            max_steps = len(path_coords)
+        if len(path_coords) > max_path:
+            max_path = len(path_coords)
 
     # frames
     frames = []

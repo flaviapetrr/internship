@@ -1,5 +1,6 @@
 import numpy as np
 import heapq
+import random
 
 class QLearningAgent():
     """
@@ -15,7 +16,6 @@ class QLearningAgent():
         epsilon_start :     initial ε for ε-greedy policy
         epsilon_end   :     minimum ε after decay
         epsilon_decay :     exponential decay rate
-        epsilon:            current ε value
         replay_steps:       number of replay performed for each step
         theta:              prioritized sweeping surprise threshold
         reward_shift_ep:    episode at which to swap the goal position (None = disabled)
@@ -37,7 +37,6 @@ class QLearningAgent():
             epsilon_start: float = 1.0,
             epsilon_end: float = 0.05,
             epsilon_decay: float = 0.005, # λ == decay rate
-            epsilon: float = 1,
             replay_steps: int = 10,
             theta: float = 0.0001,
             reward_shift_ep: int = None,
@@ -67,7 +66,6 @@ class QLearningAgent():
         self.epsilon_start = epsilon_start
         self.epsilon_end = epsilon_end
         self.epsilon_decay = epsilon_decay
-        self.epsilon = epsilon
         self.replay_steps = replay_steps
         self.theta = theta
         self.state_space = env.observation_space.n
@@ -265,7 +263,7 @@ class QLearningAgent():
                 if self.replay_mode == "prioritized_sweeping":
                     trans = self.prioritized_sweeping(self.replay_steps)
                     episode_replay_transitions.extend(trans)
-                    episode_replay_count += self.replay_steps
+                    episode_replay_count += len(trans)
    
                 state = next_state
                 total_reward += reward
@@ -273,12 +271,12 @@ class QLearningAgent():
                 if self.replay_mode == "backward":
                     trans = self.backward_replay(self.replay_steps)
                     episode_replay_transitions.extend(trans)
-                    episode_replay_count += min(self.replay_steps, len(self.episode_memory))
+                    episode_replay_count += len(trans)
 
             if self.replay_mode == "dyna":
                 trans = self.dyna_replay(self.replay_steps)
                 episode_replay_transitions.extend(trans)
-                episode_replay_count += self.replay_steps                
+                episode_replay_count += len(trans)               
 
             self.replay_paths.append((eps + 1, episode_replay_transitions, self.q_table.copy()))
 
@@ -407,8 +405,8 @@ class QLearningAgent():
         -> efficient
         """
         if not self.model:
-            return
-        import random
+            return[]
+
         states_with_model = list(self.model.keys())
         transitions = []
 

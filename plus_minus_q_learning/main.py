@@ -13,7 +13,7 @@ import gif
 
 RUN              = "single" # "single", "mode_comparison", "replay_comparison"
 FIXED_REPLAY     = "backward" # "none", "prioritized_sweeping", "backward", "dyna"
-MODE             = "std_punish" # "std", "std_punish", "opposite", "relative", "relative_punish"
+MODE             = "std" # "std", "std_punish", "opposite", "relative", "relative_punish"
 
 TRAINING_EPS     = 750
 EPISODE_STEPS    = 80
@@ -87,7 +87,6 @@ def make_agent(env, mode, replay_mode,reward_shift_ep=REWARD_SHIFT_EP, shift_env
         epsilon_start=EPS_START,
         epsilon_end=EPS_END,
         epsilon_decay=EPS_DECAY,
-        epsilon=1.0,
         replay_steps=REPLAY_STEPS,
         theta=THETA,
         reward_shift_ep=reward_shift_ep,
@@ -95,20 +94,9 @@ def make_agent(env, mode, replay_mode,reward_shift_ep=REWARD_SHIFT_EP, shift_env
 
     )
 
-# moving average mean
-def rolling(x, w):
-    """
-    Moving Avg Mean
-    
-    Args:
-    x:  data
-    w:  window
-    """
-    return np.convolve(np.array(x, dtype=float), np.ones(w) / w, mode='valid')
-
 def episodes_to_criterion(success_list, window=50, threshold=80.0):
-    """first episode where rolling success rate crosses threshold%"""
-    r = rolling(success_list, window) * 100
+    """first episode where moving avg success rate crosses threshold%"""
+    r = plot._moving_avg(success_list, window) * 100
     hits = np.where(r >= threshold)[0]
     return int(hits[0] + window - 1) if len(hits) > 0 else None
 
@@ -122,8 +110,7 @@ def run_single(replay_mode):
         print(f" goal shift at ep {REWARD_SHIFT_EP} to {SHIFT_GOAL_POS}")
     print(f"{'='*50}")
 
-    env, _ = make_env(MODE)
-
+    env, env_kwargs = make_env(MODE)
     shift_fn = None
 
     if REWARD_SHIFT_EP is not None:
@@ -192,7 +179,7 @@ def run_mode_comparison(replay_mode="none"):
         punishment-based: std_punish, opposite, relative_punish
 
     subplots:
-        1. mean rolling success rate + error
+        1. moving avg mean success rate + error
         2. mean TD error
         3. mean episodes to reach 80% + error
     """
@@ -249,8 +236,8 @@ def run_mode_comparison(replay_mode="none"):
  
         # subplot 1
         for m in modes:
-            mr = rolling(mean_suc[m], window) * 100
-            sr = rolling(std_suc[m],  window) * 100
+            mr = plot._moving_avg(mean_suc[m], window) * 100
+            sr = plot._moving_avg(std_suc[m],  window) * 100
             ax_suc.plot(x, mr, color=MODE_COLORS[m], linewidth=2, label=m)
             ax_suc.fill_between(x, mr - sr, mr + sr, color=MODE_COLORS[m], alpha=0.15)
             crit = episodes_to_criterion(mean_suc[m], window=window, threshold=80)
@@ -258,13 +245,13 @@ def run_mode_comparison(replay_mode="none"):
                 ax_suc.axvline(crit, color=MODE_COLORS[m], linestyle=':', linewidth=1, alpha=0.7)
                 ax_suc.text(crit + 3, 2, str(crit), color=MODE_COLORS[m], fontsize=7)
         ax_suc.axhline(80, color='gray', linestyle='--', linewidth=0.8, alpha=0.5, label='80%')
-        ax_suc.set_title(f"Rolling Success Rate  (window={window})")
+        ax_suc.set_title(f"Moving Avg Success Rate  (window={window})")
         ax_suc.set_xlabel("Episode"); ax_suc.set_ylabel("Success %")
         ax_suc.set_ylim(0, 115); ax_suc.legend(fontsize=8); ax_suc.grid(True, alpha=0.3)
  
         # subplot 2
         for m in modes:
-            ax_td.plot(x, rolling(mean_td[m], window),
+            ax_td.plot(x, plot._moving_avg(mean_td[m], window),
                        color=MODE_COLORS[m], linewidth=2, label=m)
         ax_td.set_title(f"Mean TD Error  (window={window})")
         ax_td.set_xlabel("Episode"); ax_td.set_ylabel("TD error")
@@ -316,7 +303,7 @@ def run_replay_comparison():
     Running N seed agents for each replay method
 
     subplots:
-        1. mean rolling success rate + error
+        1. moving avg mean success rate + error
         2. mean TD error
         3. mean episodes to reach 80% + error
     """
@@ -358,8 +345,8 @@ def run_replay_comparison():
     # subplot 1
     ax = axes[0]
     for rm in REPLAY_MODES:
-        mean_r = rolling(mean_suc[rm], window) * 100
-        std_r  = rolling(std_suc[rm],  window) * 100
+        mean_r = plot._moving_avg(mean_suc[rm], window) * 100
+        std_r  = plot._moving_avg(std_suc[rm],  window) * 100
         ax.plot(x, mean_r, color=COLORS[rm], linewidth=2, label=rm)
         ax.fill_between(x, mean_r - std_r, mean_r + std_r,
                         color=COLORS[rm], alpha=0.15)
@@ -370,7 +357,7 @@ def run_replay_comparison():
             ax.text(crit + 3, 3, str(crit), color=COLORS[rm], fontsize=7, va='bottom')
  
     ax.axhline(80, color='gray', linestyle='--', linewidth=0.8, alpha=0.4, label='80% target')
-    ax.set_title(f"Rolling Successes Rate  (window={window})")
+    ax.set_title(f"Moving Avg Successes Rate  (window={window})")
     ax.set_xlabel("Episode")
     ax.set_ylabel("Success %")
     ax.set_ylim(0, 115)
@@ -380,7 +367,7 @@ def run_replay_comparison():
     # subplot 2
     ax = axes[1]
     for rm in REPLAY_MODES:
-        ax.plot(x, rolling(mean_td[rm], window),
+        ax.plot(x, plot._moving_avg(mean_td[rm], window),
                 color=COLORS[rm], linewidth=2, label=rm)
     ax.set_title(f"Mean TD Error  (window={window})")
     ax.set_xlabel("Episode")
