@@ -12,11 +12,13 @@ import gif
 # --------------- CHANGE CONFIG HERE ---------------
 
 RUN              = "single" # "single", "mode_comparison", "replay_comparison"
-FIXED_REPLAY     = "backward" # "none", "f_ps", "backward", "dyna" -> f_ps == forward_prioritized_sweeping
-MODE             = "std" # "std", "std_punish", "opposite", "relative", "relative_punish"
+FIXED_REPLAY     = "backward" # "none", "prioritized_sweeping", "backward", "dyna"
+MODE             = "std_punish" # "std", "std_punish", "opposite", "relative", "relative_punish"
 
 TRAINING_EPS     = 750
 EPISODE_STEPS    = 80
+
+REPLAY_STEPS     = 20
 
 REWARD_SHIFT_EP  = TRAINING_EPS // 2
 SHIFT_GOAL_POS   = (2, 8) 
@@ -28,15 +30,14 @@ GAMMA            = 0.99
 EPS_START        = 1.0
 EPS_END          = 0.01
 EPS_DECAY        = 0.0005
-REPLAY_STEPS     = 20
 THETA            = 0.0001
 OUTDIR           = "./plus_minus_q_learning/visuals"
 
-REPLAY_MODES = ["none", "forward", "backward", "dyna"]
+REPLAY_MODES = ["none", "prioritized_sweeping", "backward", "dyna"]
 
 COLORS = {
     "none":     "#888888",
-    "forward":  "#2196F3",
+    "prioritized_sweeping":  "#2196F3",
     "backward": "#E91E63",
     "dyna":     "#4CAF50",
 }

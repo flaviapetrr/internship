@@ -47,10 +47,15 @@ class QLearningAgent():
         
         self.env = env
         self.initial_desc = env.unwrapped.desc.astype(str).copy()
+
         valid_modes = ["std", "std_punish", "opposite", "relative", "relative_punish"]
         if mode not in valid_modes:
             raise ValueError(f"Error: '{mode}' not valid.\nValid options: {valid_modes}")
             
+        valid_replays = ["none", "prioritized_sweeping", "backward", "dyna"]
+        if replay_mode not in valid_replays:
+            raise ValueError(f"Error: '{replay_mode}' not valid.\nValid options: {valid_replays}")
+        
         self.mode = mode
         self.replay_mode = replay_mode
         self.training_episodes = training_episodes
@@ -254,10 +259,10 @@ class QLearningAgent():
                 self.predecessors[next_state].add((state, action)) 
  
                 # seed priority queue for prioritized sweeping
-                if self.replay_mode == "f_ps" and td_error > self.theta:
+                if self.replay_mode == "prioritized_sweeping" and td_error > self.theta:
                     heapq.heappush(self.priority_queue, (-td_error, (state, action)))
  
-                if self.replay_mode == "f_ps":
+                if self.replay_mode == "prioritized_sweeping":
                     trans = self.prioritized_sweeping(self.replay_steps)
                     episode_replay_transitions.extend(trans)
                     episode_replay_count += self.replay_steps
@@ -274,6 +279,8 @@ class QLearningAgent():
                 trans = self.dyna_replay(self.replay_steps)
                 episode_replay_transitions.extend(trans)
                 episode_replay_count += self.replay_steps                
+
+            self.replay_paths.append((eps + 1, episode_replay_transitions, self.q_table.copy()))
 
             if (eps + 1) % 100 == 0:
                 print("Episode: ", eps + 1)

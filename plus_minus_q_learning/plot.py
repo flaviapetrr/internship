@@ -3,82 +3,140 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import gymnasium as gym
 
-BG_COLORS = {'S': '#d4edda', 'F': '#f8f9fa', 'H': '#adb5bd', 'G': '#fff3cd', 'G2': '#ffd5cd'}
+BG_COLORS = {'S': '#d4edda', 'F': '#f8f9fa', 'H': '#adb5bd', 'G': '#fff3cd', 'G1': '#cdebff', 'G2': '#ffd5cd'}
 
-def _draw_grid_bg(ax, grid_size, desc, initial_desc, bg, shifted):
-    """Draw cell backgrounds + S/G/H labels"""
+def _draw_grid_bg(plot, grid_size, desc, initial_desc, bg, shifted):
+    """
+    Draw cell backgrounds + S/G/H labels
+    
+    Args:
+        plot:           obj in which we are drawing           
+        grid_size:      grid dimension, std = 10x10
+        desc:           str matrix that describes current env state ('S', 'F', 'G')
+        initial_desc:   str matrix that describes env state before a possible goal shift ('S', 'F', 'G1', 'G2')
+        bg:             colors dictionary
+        shifted:        bool to tell if there is a goal shift
+        the others are optional (kwargs), for visualization purposes
+    """
+    text_kwargs = {'ha': 'center', 'va': 'center', 'fontsize': 12}
+    # iterating for every row and every col of the env
     for r in range(grid_size):
         for c in range(grid_size):
             cell = desc[r, c]
+            # understanding if the current cell is the old goal
             is_old_goal = shifted and (initial_desc[r, c] == 'G') and (cell != 'G')
-            bg_color = "#cdebff" if is_old_goal else bg.get(cell, '#f8f9fa')
-            ax.add_patch(plt.Rectangle((c - 0.5, r - 0.5), 1, 1, color=bg_color, zorder=0))
+            bg_color = bg.get('G1') if is_old_goal else bg.get(cell, 'F')
+            # adding backgroung color on the cell based on type
+            plot.add_patch(plt.Rectangle((c - 0.5, r - 0.5), 1, 1, color=bg_color, zorder=0))
+            # text
             if cell in ['H', 'S']:
-                ax.text(c, r, cell, ha='center', va='center',
-                        fontsize=12, color='black', alpha=0.5)
+                plot.text(c, r, cell, color='black', alpha=0.5, **text_kwargs)
             elif cell == 'G':
-                lbl = 'G2' if shifted else 'G'
-                ax.text(c, r, lbl, ha='center', va='center',
-                        fontsize=12, color='black', fontweight='bold', alpha=0.8)
+                label = 'G2' if shifted else 'G'
+                plot.text(c, r, label, color='black', fontweight='bold', alpha=0.8, **text_kwargs)
             elif is_old_goal:
-                ax.text(c, r, 'G1', ha='center', va='center',
-                        fontsize=12, color='gray', fontweight='bold', alpha=0.8)
-    ax.grid(True, color='gray', alpha=0.3, zorder=1)
+                plot.text(c, r, 'G1', color='gray', fontweight='bold', alpha=0.8, **text_kwargs)
+    # drawing drid
+    plot.grid(True, color='gray', alpha=0.3, zorder=1)
 
-def _heatmap(agent, grid_size, desc, initial_desc, plot, q_table=None, shifted=None, snap=False, min=0, max=0):
+def _heatmap(agent, grid_size, desc, initial_desc, plot, q_table=None, shifted=None, snap=False, vmin=0, vmax=0, cmap="plasma", alpha=1.0, show_text=True, show_cbar=True, zorder=1):
+    """
+    Draw heatmap
+    
+    Args:
+        agent:          QLearningAgent instance
+        grid_size:      grid dimension, std = 10x10
+        desc:           str matrix that describes current env state ('S', 'F', 'G')
+        initial_desc:   str matrix that describes env state before a possible goal shift ('S', 'F', 'G1', 'G2')
+        plot:           obj in which we are drawing
+
+        the others are optional (kwargs), for visualization purposes
+    """
+    # mapping gym action indices into arrows
     arrows = {0: '←', 1: '↓', 2: '→', 3: '↑'}
  
+    # if no q_table is given takes the current one
     if q_table is None:
         q_table = agent.q_table
 
+    # q_table = (grid_size*grid_size)xactions
+    # transforming it in a 1D list of size (grid_size*grid_size)
+    # taking max or min action based on mode
     if agent.mode in ["std", "relative"]:
         q_vals = np.max(q_table, axis=1)
         nr ="max"
     else:
         q_vals = np.min(q_table, axis=1)
         nr = "min"
-     
+    
+    # reshaping q_vals from 1D (grid_size*grid_size) to 2D grid_sizexgrid_size
     grid = q_vals.reshape(grid_size, grid_size)
 
-    vmin, vmax = (min, max) if snap else (float(q_vals.min()), float(q_vals.max())) 
+    # if snap = True using the attributes -> useful for coerence in comparisons
+    # else computing current min and max from q_vals
+    if not snap:
+        vmin, vmax = float(q_vals.min()), float(q_vals.max())
+
+    # if all values are identical add a little epsilon to avoid /0 in plt.Normalize
+    if vmin == vmax:
+        vmax += 1e-5
+
+    # computing mean for text color purposes   
     mid = (vmin + vmax) / 2
-    norm = plt.Normalize(vmin=vmin, vmax=vmax)
+    
+    if snap:
+        # doing a global normalization to compare different plots
+        norm = plt.Normalize(vmin=vmin, vmax=vmax)
+    else:
+        norm = None
 
     policy = np.argmax(q_table, axis=1)
     grid_policy = policy.reshape(grid_size, grid_size)
 
-    im = plot.imshow(grid, cmap="plasma", norm=norm, aspect='equal')
-    cb = plt.colorbar(im, ax=plot, fraction=0.046, pad=0.04)
-    cb.set_label("Q value", rotation=270, labelpad=15)
-    cb.ax.tick_params(labelsize=7)
+    im = plot.imshow(grid, cmap=cmap, norm=norm, aspect='equal', alpha=alpha, zorder=zorder)
+    
+    if show_cbar:
+        cb = plt.colorbar(im, ax=plot, fraction=0.046, pad=0.04)
+        cb.set_label("Q value", rotation=270, labelpad=15)
+        cb.ax.tick_params(labelsize=7)
 
+    # iterating for every row and every col of the env
     for r in range(grid_size):
         for c in range(grid_size):
             cell = desc[r, c]
             val  = grid[r, c]
             text_color = 'white' if val < mid else 'black'
+            # understanding if the current cell is the old goal
             is_old_goal = shifted and (initial_desc[r, c] == 'G') and (cell != 'G')
 
-            plot.text(c, r - 0.18, arrows[grid_policy[r, c]],
-                    ha='center', va='center', fontsize=9, color=text_color)
+            # text and arrows
+            if show_text:
+                plot.text(c, r - 0.18, arrows[grid_policy[r, c]],
+                        ha='center', va='center', fontsize=9, color=text_color)
 
-            plot.text(c, r + 0.22, f"{val:.3f}",
-                    ha='center', va='center', fontsize=7.5, color=text_color)
+                plot.text(c, r + 0.22, f"{val:.3f}",
+                        ha='center', va='center', fontsize=7.5, color=text_color)
 
+            # putting borders on top of heatmap -> making them visible
+            rect_z = max(zorder + 2, 3)
+            
+            # making borders for S, G1, G2
             if cell == 'G':
-                plot.add_patch(plt.Rectangle((c - 0.5, r - 0.5), 1, 1, fill=False, edgecolor='red', linewidth=2.5, zorder=3))
+                plot.add_patch(plt.Rectangle((c - 0.5, r - 0.5), 1, 1, fill=False, edgecolor='red', linewidth=2.5, zorder=rect_z))
             elif is_old_goal:
-                plot.add_patch(plt.Rectangle((c - 0.5, r - 0.5), 1, 1, fill=False, edgecolor='steelblue', linestyle='--', linewidth=2.5, zorder=3))
+                plot.add_patch(plt.Rectangle((c - 0.5, r - 0.5), 1, 1, fill=False, edgecolor='steelblue', linestyle='--', linewidth=2.5, zorder=rect_z))
             elif cell == 'S':
-                plot.add_patch(plt.Rectangle((c - 0.5, r - 0.5), 1, 1, fill=False, edgecolor='green', linewidth=2.5, zorder=3))
+                plot.add_patch(plt.Rectangle((c - 0.5, r - 0.5), 1, 1, fill=False, edgecolor='green', linewidth=2.5, zorder=rect_z))
 
+    # putting numbers on the side of the grid
     plot.set_xticks(range(grid_size))
     plot.set_yticks(range(grid_size))
     plot.tick_params(labelsize=8)
 
+    # returns max or min to change plot titles according to mode
     return nr
 
-def _draw_traj_panel(fig, ax, grid_size, desc, initial_desc, bg, shifted, sampled_paths, ep_min, ep_max, ):
+def _draw_traj_panel(fig, ax, grid_size, desc, initial_desc, bg, shifted, sampled_paths, ep_min, ep_max, cmap='plasma', linestyle='-', show_cbar=True):
     """
     Draw one trajectory panel
     sampled_paths: subset of agent.sampled_paths already filtered
@@ -94,23 +152,33 @@ def _draw_traj_panel(fig, ax, grid_size, desc, initial_desc, bg, shifted, sample
  
     _draw_grid_bg(ax, grid_size, desc, initial_desc, bg, shifted)
  
-    cmap  = plt.colormaps['plasma']
-    ep_range = max(ep_max - ep_min, 1)
+    try:
+        cmap_obj = plt.colormaps[cmap]
+        use_cmap = True
+        ep_range = max(ep_max - ep_min, 1)
+    except KeyError:
+        use_cmap = False
+        color = cmap  # Se passi un colore solido (es. '#888888'), usalo direttamente
  
     for eps_num, path_states in sampled_paths:
-        t = (eps_num - ep_min) / ep_range   
-        color = cmap(t)
-        alpha_val = 0.2 + 0.5 * t
+        if use_cmap:
+            t = (eps_num - ep_min) / ep_range   
+            color = cmap_obj(t)
+            alpha_val = 0.2 + 0.5 * t
+        else:
+            alpha_val = 0.55
         path_x = [s % grid_size for s in path_states]
         path_y = [s // grid_size for s in path_states]
         jx = np.array(path_x) + np.random.uniform(-0.15, 0.15, size=len(path_x))
         jy = np.array(path_y) + np.random.uniform(-0.15, 0.15, size=len(path_y))
-        ax.plot(jx, jy, color=color, alpha=alpha_val, linewidth=1.5, zorder=2)
+        ax.plot(jx, jy, color=color, alpha=alpha_val, linewidth=1.5, linestyle=linestyle, zorder=2)
  
-    sm   = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=ep_min, vmax=ep_max))
-    cbar = fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label('Episode', rotation=270, labelpad=15)
-    return cbar
+    if show_cbar:
+        sm = plt.cm.ScalarMappable(cmap=cmap_obj, norm=plt.Normalize(vmin=ep_min, vmax=ep_max))
+        cbar = fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label('Episode', rotation=270, labelpad=15)
+        return cbar
+    
  
  
 def _draw_visits_panel(ax, grid_size, desc, initial_desc, shifted, visits, vmax=None):
@@ -139,7 +207,8 @@ def _draw_visits_panel(ax, grid_size, desc, initial_desc, shifted, visits, vmax=
                                            linewidth=2.5, zorder=3))
             elif cell == 'S':
                 ax.add_patch(plt.Rectangle((c-0.5, r-0.5), 1, 1, fill=False, edgecolor='green', linewidth=2.5, zorder=3))
-    ax.set_xticks(range(grid_size)); ax.set_yticks(range(grid_size))
+    ax.set_xticks(range(grid_size));
+    ax.set_yticks(range(grid_size))
     ax.tick_params(labelsize=8)
 
 def plot_training(agent, path="training_summary.png", grid_size=10):
@@ -329,7 +398,7 @@ def plot_trajectories(agent, env_id, max_steps, env_kwargs, num_episodes=50, eps
         test_env = gym.make(env_id, max_episode_steps=max_steps, **env_kwargs)
         desc = test_env.unwrapped.desc.astype(str)
         
-        _, ax = plt.subplots(figsize=(8, 8))
+        fig, ax = plt.subplots(figsize=(8, 8))
         ax.set_title(f"Trajectories | episodes={num_episodes} epsilon={epsilon_test}", fontsize=14, fontweight='bold')
         ax.set_xlim(-0.5, grid_size - 0.5)
         ax.set_ylim(-0.5, grid_size - 0.5)
@@ -337,45 +406,38 @@ def plot_trajectories(agent, env_id, max_steps, env_kwargs, num_episodes=50, eps
         ax.set_yticks(range(grid_size))
         ax.set_aspect('equal')
         ax.invert_yaxis()
-        
-        _draw_grid_bg(ax, grid_size, desc, desc, BG_COLORS, shifted=False)
 
-        ax.grid(True, color='gray', alpha=0.3, zorder=1)
+        ax.grid(True, color='#888888', alpha=0.3, zorder=1)
 
         # getting and plotting trajectories
-        for _ in range(num_episodes):
+        sampled_paths = []
+        for ep in range(num_episodes):
             state, _ = test_env.reset()
             terminated = truncated = False
             
-            # conversing state in row,col
-            path_x = [state % grid_size]
-            path_y = [state // grid_size]
+            path_states = [state]
             
             for _ in range(agent.episode_steps):
                 if terminated or truncated:
                     break
                 
-                # epsilon-greedy policy
                 if np.random.rand() < epsilon_test:
                     action = test_env.action_space.sample()
                 else:
                     action = int(np.argmax(agent.q_table[state]))
                     
                 state, _, terminated, truncated, _ = test_env.step(action)
-                path_x.append(state % grid_size)
-                path_y.append(state // grid_size)
+                path_states.append(state)
                 
-            # adding visual jitter
-            jitter_x = np.array(path_x) + np.random.uniform(-0.15, 0.15, size=len(path_x))
-            jitter_y = np.array(path_y) + np.random.uniform(-0.15, 0.15, size=len(path_y))
-            
-            # plotting trajectory
-            ax.plot(jitter_x, jitter_y, color='royalblue', alpha=0.15, linewidth=2, zorder=2)
-            
-            # final point
-            end_color = 'green' if desc[path_y[-1], path_x[-1]] == 'G' else ('red' if desc[path_y[-1], path_x[-1]] == 'H' else 'orange')
-            ax.scatter(jitter_x[-1], jitter_y[-1], color=end_color, s=20, zorder=3, alpha=0.5)
+            sampled_paths.append((ep, path_states))
 
+        # 2. Utilizzo dell'helper (disegna griglia, sfondo e traiettorie sfumate)
+        _draw_traj_panel(
+            fig, ax, grid_size, desc, desc, BG_COLORS, 
+            shifted=False, 
+            sampled_paths=sampled_paths, 
+            ep_min=0, ep_max=num_episodes
+        )
         plt.tight_layout()
         plt.savefig(path, dpi=150, bbox_inches='tight')
         #plt.show()
@@ -567,28 +629,8 @@ def plot_training_evolution(agent, path="training_evolution.png", grid_size=10):
     plt.close(fig)
     print(f"Training Evolution plot saved to {path}")
     
-#def plot_replay_trajs(agent):
-#
-#    if not agent.replay_paths:
-#        print("[plot_replay_trajectories] no replay paths stored - skipping")
-#        return
-#
-#    shifted = agent.shift_happened_ep is not None
-#    desc = agent.env.unwrapped.desc.astype(str)
-#    initial_desc = getattr(agent, 'initial_desc', desc)
-#
-#    if shifted:
-#        shift_ep = agent.shift_happened_ep
-#        shift_note = f" | goal shift at ep {shift_ep}"
-#
-#    nrows = 2 if shifted else 1
-#    fig, axes = plt.subplots(nrows, 3, figsize=(18, 6 * nrows))
-#    axes = np.array(axes).reshape(nrows, 3) 
-#
-#    title = (f"Replay Treajectories   |   mode={agent.mode} replay={agent.replay_mode}    |   episodes={agent.training_episodes}{shift_note}")
-#    fig.suptitle(title, fontsize=14, fontweight='bold')
-
 def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10, n_sample=8):
+
     if getattr(agent, 'replay_paths', None) is None or not agent.replay_paths:
         print("[plot_replay_trajectories] No replay paths stored - skipping")
         return
@@ -597,78 +639,135 @@ def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10
     desc = agent.env.unwrapped.desc.astype(str)
     initial_desc = getattr(agent, 'initial_desc', desc)
 
-    # 1. Campionamento di 8 episodi ben distribuiti
-    all_eps = [ep for ep, _ in agent.replay_paths]
+    # Estrazione sicura degli episodi
+    all_eps = [data[0] for data in agent.replay_paths]
     indices = np.round(np.linspace(0, len(all_eps) - 1, min(n_sample, len(all_eps)))).astype(int)
     sampled = [agent.replay_paths[i] for i in indices]
-
-    # 2. Creazione di un dizionario per trovare subito le traiettorie reali
     agent_path_dict = {ep: path for ep, path in agent.sampled_paths}
 
     n = len(sampled)
     ncols = min(n, 4)
     nrows = (n + ncols - 1) // ncols
-    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 5.5, nrows * 5.5), squeeze=False)
+    # Ho allargato la figsize per far respirare le due Colorbar ai lati
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 6 + 2, nrows * 6), squeeze=False)
 
-    time_cmap = plt.colormaps['coolwarm']
+    # Scala di grigi per lo sfondo come richiesto, Cool (Ciano->Magenta) per le linee di replay
+    heatmap_cmap = plt.colormaps['Greys']
     replay_cmap = plt.colormaps['plasma']
-
-    title = f"Replay Trajectories  |  mode={agent.mode}  replay={agent.replay_mode}"
-    if shifted:
-        title += f"  |  goal shift @ ep {agent.shift_happened_ep}"
+    
+    shift_note = f" | goal shift at ep {agent.shift_happened_ep}" if shifted else ""
+    title = (f"Replay Trajectories   |   mode={agent.mode} replay={agent.replay_mode}    |   episodes={agent.training_episodes}{shift_note}")
     fig.suptitle(title, fontsize=14, fontweight='bold')
 
-    for idx, (eps_num, replay_trans) in enumerate(sampled):
+    JITTER_VAL = 0.2
+
+    def get_replay_batches(transitions):
+        batches, current_batch = [], []
+        for s, ns in transitions:
+            if not current_batch:
+                current_batch.append((s, ns))
+            else:
+                prev_s, prev_ns = current_batch[-1]
+                if s == prev_ns or ns == prev_s:
+                    current_batch.append((s, ns))
+                else:
+                    batches.append(current_batch)
+                    current_batch = [(s, ns)]
+        if current_batch:
+            batches.append(current_batch)
+        return batches
+
+    # --- CALCOLO SCALA VALORI GLOBALE PER LA HEATMAP ---
+    sampled_qtables = [data[2] for data in sampled if len(data) > 2]
+    if not sampled_qtables:
+        sampled_qtables = [agent.q_table]
+    
+    if agent.mode in ["std", "relative"]:
+        all_q_vals = np.concatenate([np.max(qt, axis=1) for qt in sampled_qtables])
+    else:
+        all_q_vals = np.concatenate([np.min(qt, axis=1) for qt in sampled_qtables])
+        
+    q_vmin, q_vmax = float(all_q_vals.min()), float(all_q_vals.max())
+    if q_vmin == q_vmax: q_vmax += 1e-5
+
+    for idx, data in enumerate(sampled):
+        eps_num = data[0]
+        replay_trans = data[1]
+        q_table_snap = data[2] if len(data) > 2 else agent.q_table
+
         ax = axes[idx // ncols, idx % ncols]
-
-        # Sfondo griglia usando il tuo helper!
         panel_desc = initial_desc if (shifted and eps_num <= agent.shift_happened_ep) else desc
-        _draw_grid_bg(ax, grid_size, panel_desc, initial_desc, BG_COLORS, shifted=(shifted and eps_num > agent.shift_happened_ep))
-        ax.set_aspect('equal')
-        ax.invert_yaxis()
+        is_panel_shifted = (shifted and eps_num > agent.shift_happened_ep)
+        
+        # 1. HEATMAP DI SFONDO (Scala di grigi, testo disattivato)
+        _heatmap(
+            agent, grid_size, panel_desc, initial_desc, ax, 
+            q_table=q_table_snap, shifted=is_panel_shifted, snap=True, 
+            min=q_vmin, max=q_vmax, cmap=heatmap_cmap, alpha=0.8, 
+            show_text=False, show_cbar=False, zorder=1
+        )
 
-        # 3. Disegna la traiettoria VERA dell'agente (linea tratteggiata grigia)
+        # 2. DISEGNO NETTO DELLA GRIGLIA SOPRA LA MAPPA
+        for i in range(grid_size + 1):
+            ax.axhline(i - 0.5, color='white', lw=1.0, alpha=0.6, zorder=2)
+            ax.axvline(i - 0.5, color='white', lw=1.0, alpha=0.6, zorder=2)
+
+        # 3. TRAIETTORIA VERA (in grigio chiaro, tratteggiata)
         agent_path = agent_path_dict.get(eps_num, [])
         if len(agent_path) > 1:
             px = [s % grid_size for s in agent_path]
             py = [s // grid_size for s in agent_path]
-            jx = np.array(px, float) + np.random.uniform(-0.08, 0.08, len(px))
-            jy = np.array(py, float) + np.random.uniform(-0.08, 0.08, len(py))
-            ax.plot(jx, jy, color='gray', alpha=0.55, linewidth=1.5, linestyle='--', zorder=2)
-            ax.scatter(jx[0], jy[0], color='green', s=40, zorder=4, alpha=0.8) # Partenza
-            ax.scatter(jx[-1], jy[-1], color='orange', s=40, zorder=4, alpha=0.8, marker='X') # Arrivo
+            jx = np.array(px, float) + np.random.uniform(-0.1, 0.1, len(px))
+            jy = np.array(py, float) + np.random.uniform(-0.1, 0.1, len(py))
+            ax.plot(jx, jy, color='#888888', alpha=0.9, linewidth=1.5, linestyle='--', zorder=3)
 
-        # 4. Disegna i REPLAY (Frecce colorate)
-        n_trans = len(replay_trans)
-        for t_idx, (s, ns) in enumerate(replay_trans):
-            t = t_idx / max(n_trans - 1, 1) # Normalizza da 0.0 a 1.0
-            color = replay_cmap(t)
+        # 4. LINEE DI REPLAY (Colormap 'cool' Ciano->Magenta)
+        batches = get_replay_batches(replay_trans)
+
+        if batches:
+            batches = [max(batches, key=len)]
             
-            sx, sy = s % grid_size, s // grid_size
-            nsx, nsy = ns % grid_size, ns // grid_size
+        node_x = {st: (st % grid_size) + np.random.uniform(-JITTER_VAL, JITTER_VAL) for st in range(agent.state_space)}
+        node_y = {st: (st // grid_size) + np.random.uniform(-JITTER_VAL, JITTER_VAL) for st in range(agent.state_space)}
+        
+        for batch in batches:
+            b_len = len(batch)
+            if b_len == 0: continue
+
+            first_s = batch[0][0]
+            # X di partenza
+            ax.scatter(node_x[first_s], node_y[first_s], marker='x', s=45, color=replay_cmap(0.0), alpha=1.0, zorder=6, linewidths=2.5)
             
-            if sx == nsx and sy == nsy: # Ha sbattuto contro il muro nel modello
-                ax.scatter(sx, sy, s=15, color=color, alpha=0.6, zorder=3)
-            else:
-                ax.annotate(
-                    "", xy=(nsx + np.random.uniform(-0.05, 0.05), nsy + np.random.uniform(-0.05, 0.05)),
-                    xytext=(sx, sy),
-                    arrowprops=dict(arrowstyle="-|>", color=color, alpha=0.6, lw=1.2, mutation_scale=8),
-                    zorder=3
-                )
+            for i, (s, ns) in enumerate(batch):
+                t = i / max(b_len - 1, 1) 
+                color = replay_cmap(t)
+                sx, sy = node_x[s], node_y[s]
+                nsx, nsy = node_x[ns], node_y[ns]
 
-        # Colora i bordi del pannello in base a quando è avvenuto l'episodio
-        border_color = time_cmap(eps_num / agent.training_episodes)
-        for spine in ax.spines.values():
-            spine.set_edgecolor(border_color)
-            spine.set_linewidth(3)
-        ax.set_title(f"Episode {eps_num}", fontsize=11, fontweight='bold', color=border_color)
+                if s == ns: 
+                    ax.scatter(sx, sy, s=20, color=color, alpha=0.9, zorder=4)
+                else:
+                    ax.plot([sx, nsx], [sy, nsy], color=color, alpha=0.8, linewidth=2.5, solid_capstyle='round', zorder=5)
 
-    # Nascondi i grafici vuoti se n_sample non è un multiplo di 4
+        ax.set_title(f"Episode {eps_num}", fontsize=11, fontweight='bold')
+        ax.set_xlim(-0.5, grid_size - 0.5)
+        ax.set_ylim(grid_size - 0.5, -0.5)
+
     for j in range(n, nrows * ncols):
         axes[j // ncols, j % ncols].set_visible(False)
 
-    plt.tight_layout()
+    # --- COLORBAR DI SINISTRA (Heatmap Q-Value) ---
+    sm_q = plt.cm.ScalarMappable(cmap=heatmap_cmap, norm=plt.Normalize(vmin=q_vmin, vmax=q_vmax))
+    cb_q = fig.colorbar(sm_q, ax=axes, location='left', fraction=0.03, pad=0.04)
+    cb_q.set_label("Background: Q-Value", rotation=90, labelpad=20, fontsize=12, fontweight='bold')
+
+    # --- COLORBAR DI DESTRA (Sequenza Replay) ---
+    sm_r = plt.cm.ScalarMappable(cmap=replay_cmap, norm=plt.Normalize(vmin=0, vmax=1))
+    cb_r = fig.colorbar(sm_r, ax=axes, location='right', fraction=0.03, pad=0.04)
+    cb_r.set_label("Replay Sequence (timesteps)", rotation=270, labelpad=20, fontsize=12, fontweight='bold')
+    cb_r.set_ticks([0, 1])
+    cb_r.set_ticklabels(['Start', 'End'])
+
     plt.savefig(path, dpi=150, bbox_inches='tight')
     plt.close(fig)
     print(f"Replay trajectories plot saved to {path}")
