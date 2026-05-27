@@ -12,8 +12,8 @@ import gif
 # --------------- CHANGE CONFIG HERE ---------------
 
 RUN              = "single" # "single", "mode_comparison", "replay_comparison"
-FIXED_REPLAY     = "backward" # "none", "prioritized_sweeping", "backward", "dyna"
-MODE             = "std" # "std", "std_punish", "opposite", "relative", "relative_punish"
+FIXED_REPLAY     = "none" # "none", "prioritized_sweeping", "backward", "dyna"
+MODE             = "std_punish" # "std", "std_punish", "opposite", "relative", "relative_punish"
 
 TRAINING_EPS     = 750
 EPISODE_STEPS    = 80

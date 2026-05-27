@@ -17,24 +17,28 @@ def _draw_cell_borders(plot, c, r, cell, is_old_goal, zorder):
     elif cell == 'S':
         plot.add_patch(plt.Rectangle((c - 0.5, r - 0.5), 1, 1, fill=False, edgecolor='green', linewidth=2.5, zorder=zorder))
     
-def _write_cell_text(plot, c, r, cell, is_old_goal, shifted, text_color='black', val=None, arrow=None):
+def _write_cell_text(plot, c, r, cell, is_old_goal, shifted, text_color='black', pos=None, val=None, arrow=None, zorder=None):
 
     text_kwargs = {'ha': 'center', 'va': 'center', 'fontsize': 12}
 
-    if cell in ['H', 'S']:
-        plot.text(c, r, cell, color='black', alpha=0.5, **text_kwargs)
-    elif cell == 'G':
-        label = 'G2' if shifted else 'G'
-        plot.text(c, r, label, color='black', fontweight='bold', alpha=0.8, **text_kwargs)
-    elif is_old_goal:
-        plot.text(c, r, 'G1', color='gray', fontweight='bold', alpha=0.8, **text_kwargs)
-        
+    if zorder is not None:
+        text_kwargs['zorder'] = zorder
+
+    if pos is not None:
+        if cell in ['H', 'S']:
+            plot.text(c, r, cell, color='black', fontweight='bold', alpha=0.5, **text_kwargs)
+        elif cell == 'G':
+            label = 'G2' if shifted else 'G'
+            plot.text(c, r, label, color='black', fontweight='bold', alpha=0.8, **text_kwargs)
+        elif is_old_goal:
+            plot.text(c, r, 'G1', color='gray', fontweight='bold', alpha=0.8, **text_kwargs)
+            
     if arrow is not None:
         plot.text(c, r - 0.18, arrow, ha='center', va='center', fontsize=9, color=text_color)
     if val is not None:
         plot.text(c, r + 0.22, f"{val:.3f}", ha='center', va='center', fontsize=7.5, color=text_color)
         
-def _draw_grid_bg(plot, grid_size, desc, initial_desc, bg, shifted):
+def _draw_grid_bg(plot, grid_size, desc, initial_desc, bg, shifted, pos=None,text_zorder=None):
     """
     Draw cell backgrounds + S/G/H labels
     
@@ -57,7 +61,7 @@ def _draw_grid_bg(plot, grid_size, desc, initial_desc, bg, shifted):
             # adding backgroung color on the cell based on type
             plot.add_patch(plt.Rectangle((c - 0.5, r - 0.5), 1, 1, color=bg_color, zorder=0))
             # text
-            _write_cell_text(plot, c, r, cell, is_old_goal, shifted)
+            _write_cell_text(plot, c, r, cell, is_old_goal, shifted, pos=pos, zorder=text_zorder)
             
     # drawing drid
     plot.grid(True, color='gray', alpha=0.3, zorder=1)
@@ -105,7 +109,7 @@ def _heatmap(agent, grid_size, desc, initial_desc, plot, shifted, q_table=None, 
     if min_val == max_val: max_val += 1e-5
 
     # computing mean for text color purposes   
-    mid = (vmin + vmax) / 2
+    mid = (min_val + max_val) / 2
 
     policy = np.argmax(q_table, axis=1)
     # reshaping policy from 1D (grid_size*grid_size) to 2D grid_sizexgrid_size
@@ -144,7 +148,7 @@ def _heatmap(agent, grid_size, desc, initial_desc, plot, shifted, q_table=None, 
     # returns max or min to change plot titles according to mode
     return nr
 
-def _draw_traj_panel(fig, plot, grid_size, desc, initial_desc, bg, shifted, sampled_paths, ep_min, ep_max, cmap='plasma', linestyle='-', show_cbar=True):
+def _draw_traj_panel(fig, plot, grid_size, desc, initial_desc, bg, shifted, sampled_paths, ep_min, ep_max, cmap='plasma', linestyle='-', show_cbar=True, pos=None, text_zorder=5):
     """
     Draw one trajectory panel
     Args:
@@ -169,7 +173,7 @@ def _draw_traj_panel(fig, plot, grid_size, desc, initial_desc, bg, shifted, samp
     plot.invert_yaxis()
  
     # drawing bg and grid
-    _draw_grid_bg(plot, grid_size, desc, initial_desc, bg, shifted)
+    _draw_grid_bg(plot, grid_size, desc, initial_desc, bg, shifted, pos, text_zorder=text_zorder)
 
     # setting up the colormap
     # accepts bot gradients and solid colors
@@ -473,7 +477,7 @@ def plot_trajectories(agent, env_id, max_steps, env_kwargs, num_episodes=50, eps
             fig, ax, grid_size, desc, desc, BG_COLORS, 
             shifted=False, 
             sampled_paths=sampled_paths, 
-            ep_min=0, ep_max=num_episodes
+            ep_min=0, ep_max=num_episodes, pos=True, text_zorder=4
         )
         plt.tight_layout()
         plt.savefig(path, dpi=150, bbox_inches='tight')
@@ -621,7 +625,8 @@ def plot_training_evolution(agent, path="training_evolution.png", grid_size=10):
 
     if shifted:
         ax = axes[0, 0]
-        _draw_traj_panel(fig, ax, grid_size, initial_desc, initial_desc, BG_COLORS, False, sampled_paths=paths_before, ep_min=0, ep_max=agent.training_episodes)
+        _draw_traj_panel(fig, ax, grid_size, initial_desc, initial_desc, BG_COLORS, False, sampled_paths=paths_before, 
+                         ep_min=0, ep_max=agent.training_episodes, pos=True, text_zorder=4)
         ax.set_title(f"Trajectories before shift", fontsize=12)
 
         ax = axes[0, 1]
@@ -637,7 +642,8 @@ def plot_training_evolution(agent, path="training_evolution.png", grid_size=10):
         ax.set_title("State Visits before shift", fontsize=12)
 
         ax = axes[1, 0]
-        _draw_traj_panel(fig, ax, grid_size, desc, initial_desc, BG_COLORS, True, sampled_paths=paths_after, ep_min=0, ep_max=agent.training_episodes)
+        _draw_traj_panel(fig, ax, grid_size, desc, initial_desc, BG_COLORS, True, sampled_paths=paths_after,
+                        ep_min=0, ep_max=agent.training_episodes, pos=True, text_zorder=4)
         ax.set_title(f"Trajectories after shift", fontsize=12)
 
         ax = axes[1, 1]
@@ -650,7 +656,8 @@ def plot_training_evolution(agent, path="training_evolution.png", grid_size=10):
 
     else:
         ax = axes[0, 0]
-        _draw_traj_panel(fig, ax, grid_size, desc, initial_desc, BG_COLORS, False, sampled_paths=agent.sampled_paths, ep_min=0, ep_max=agent.training_episodes)
+        _draw_traj_panel(fig, ax, grid_size, desc, initial_desc, BG_COLORS, False, sampled_paths=agent.sampled_paths,
+                        ep_min=0, ep_max=agent.training_episodes, pos=True, text_zorder=4)
         ax.set_title("Trajectories", fontsize=12)
 
         ax = axes[0, 1]
@@ -731,7 +738,7 @@ def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10
         # heatmap
         _heatmap(
             agent, grid_size, panel_desc, initial_desc, ax, q_table=q_table_snap, 
-            shifted=is_panel_shifted, min=q_vmin, max=q_vmax, cmap=heatmap_cmap, alpha=0.8, 
+            shifted=is_panel_shifted, vmin=q_vmin, vmax=q_vmax, cmap=heatmap_cmap, alpha=0.8, 
             show_text=False, show_cbar=False, zorder=1
         )
 
