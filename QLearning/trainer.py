@@ -10,6 +10,7 @@ class Trainer(QLearningAgent):
     def __init__(self, *args, env_factory=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.env_factory = env_factory
+        self.count=np.zeros(self.state_space)
 
     def training(self):
         """
@@ -23,7 +24,7 @@ class Trainer(QLearningAgent):
         # storing the initial grid description for the plot
         self.initial_desc = self.env.unwrapped.desc.astype(str)
  
-        # uncomment if equally distributed plots are wanted for visual plot
+        # uncomment if want equally distributed plots
         # selecting equally distributed episodes for plot
         #snapshot_ep = set(
         #    int(round(i * (self.training_eps - 1) / (N_PLOT_SNAPSHOTS - 1)))
@@ -56,7 +57,7 @@ class Trainer(QLearningAgent):
                     raise RuntimeError("agent if configured for goal shift but env_factory does not exist")
                 
                 self.shift_happened_ep = ep
-                print(f"[shift]     goal moved at episode {ep}")
+                print(f"\n[shift]     goal moved at episode {ep}\n")
 
             # reset
             current_state, _ = self.env.reset()
@@ -72,6 +73,8 @@ class Trainer(QLearningAgent):
             agent_path = [current_state]
             episode_replay_batches = [] # list of [(s, ns)] per replay event
             
+            if ep % 100 == 0:
+                self.count = np.zeros(self.state_space)
             for step in range(self.max_episode_steps):
                 if terminated or truncated:
                     break
@@ -95,6 +98,7 @@ class Trainer(QLearningAgent):
                 # updating q_table
                 self.q_table_update(current_state, action, next_state, reward, terminated)
                 
+                self.count[next_state] += 1 
                 # per-step replay
                 if self.replay_mode == "prioritized_sweeping":
                         # updating model and predecessors
@@ -153,7 +157,7 @@ class Trainer(QLearningAgent):
                         batch.append((d_state, d_next_state))
 
                     episode_replay_batches.append(batch)
-                    if reward is not 0: print(self.model)
+                    
                 elif self.replay_mode == "backward":
                 
                     self.buffer.store_step(current_state, action, next_state, reward, terminated)
@@ -176,6 +180,17 @@ class Trainer(QLearningAgent):
 
             if (ep + 1) % 100 == 0:
                     print(f"Episode: {ep + 1} - epsilon: {self.epsilon}")
+                    print(self.count[:10])
+                    print(self.count[11:20])
+                    print(self.count[21:30])
+                    print(self.count[31:40])
+                    print(self.count[41:50])
+                    print(self.count[51:60])
+                    print(self.count[61:70])
+                    print(self.count[71:80])
+                    print(self.count[81:90])
+                    print(self.count[91:100])
+
 
             reach_goal = (total_reward > 0) if self.mode in ["std", "relative"] else (total_reward < 0)
             self.ep_reach_goal.append(1 if reach_goal else 0)

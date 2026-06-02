@@ -43,6 +43,11 @@ class DynaReplay():
         self.visited_states.add(current_state)
         self.state_actions[current_state].add(action)
 
+        # stupid debug to check model storage
+        #if next_state == 99:
+        #if reward != 0:
+        #    print(f"Update: State {current_state} | Action {action} -> Stored vals: {self.model[(current_state, action)]}")
+
     def random_sample(self):
         """samples a situation already experienced in the past"""
         # randomly chooses key
@@ -74,6 +79,11 @@ class PrioritizedSweepingReplay():
         """save step just performed in the algorithm model and the predecessors"""
         self.model[(current_state, action)] = (next_state, reward, terminated)
         self.predecessors[next_state].add((current_state, action, reward, terminated))
+
+        # stupid debug to check model storage
+        #if next_state == 99: 
+        #if reward != 0:
+        #    print(f"Update: State {current_state} | Action {action} -> Stored vals: {self.model[(current_state, action)]}")
 
     def push(self, priority, state, action):
         if priority > self.theta:
