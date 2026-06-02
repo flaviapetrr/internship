@@ -45,6 +45,7 @@ class QLearningAgent ():
         self.training_episodes      = training_eps # alias for plot_utils
         self.max_episode_steps      = max_episode_steps
         self.epsilon                = epsilon_start
+        self.epsilon_start          = epsilon_start
         self.epsilon_min            = epsilon_min
         self.decay_rate             = decay_rate
         self.q_init                 = q_init

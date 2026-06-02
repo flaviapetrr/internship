@@ -1,6 +1,6 @@
 import numpy as np
 from agent import QLearningAgent
-from replay import BackwardReplay, DynaReplay, PrioritizedSweepingReplay
+from replay import BackwardReplay, DynaReplay, PrioritizedSweepingReplay, ValueIterationReplay
 
 # how many episode snapshots to save for the replay-trajectory plot
 N_PLOT_SNAPSHOTS = 8
@@ -38,6 +38,8 @@ class Trainer(QLearningAgent):
             self.buffer = DynaReplay()
         elif self.replay_mode == "prioritized_sweeping":
             self.buffer = PrioritizedSweepingReplay(theta=self.theta)
+        elif self.replay_mode == "value_iteration":
+            self.buffer = ValueIterationReplay()
 
         for ep in range(self.training_eps):
             # checking if need to shift goal
@@ -48,6 +50,7 @@ class Trainer(QLearningAgent):
                 self._save_snapshot("at_shift", ep, episode_replay_batches, agent_path)
                 old_env = self.env
                 old_env.close()
+                self.epsilon = self.epsilon_start
 
                 # generating and assigning new env
                 if self.env_factory is not None:
@@ -162,6 +165,20 @@ class Trainer(QLearningAgent):
                 
                     self.buffer.store_step(current_state, action, next_state, reward, terminated)
 
+                elif self.replay_mode == "value_iteration":
+                    
+                    self.buffer.store_step(current_state, action, next_state, reward, terminated)
+                    
+                    batch = []
+                    # sweepingthe whole model
+                    for v_state, v_action, v_next_state, v_reward, v_terminated in self.buffer.get_sweep_batch():
+                        
+                        # updating q_table using global mental replay
+                        self.q_table_update(v_state, v_action, v_next_state, v_reward, v_terminated)
+                        batch.append((v_state, v_next_state))
+
+                    episode_replay_batches.append(batch)
+
                 agent_path.append(next_state)
                 current_state = next_state
                 total_reward += reward
@@ -180,16 +197,16 @@ class Trainer(QLearningAgent):
 
             if (ep + 1) % 100 == 0:
                     print(f"Episode: {ep + 1} - epsilon: {self.epsilon}")
-                    print(self.count[:10])
-                    print(self.count[11:20])
-                    print(self.count[21:30])
-                    print(self.count[31:40])
-                    print(self.count[41:50])
-                    print(self.count[51:60])
-                    print(self.count[61:70])
-                    print(self.count[71:80])
-                    print(self.count[81:90])
-                    print(self.count[91:100])
+                    #print(self.count[:10])
+                    #print(self.count[11:20])
+                    #print(self.count[21:30])
+                    #print(self.count[31:40])
+                    #print(self.count[41:50])
+                    #print(self.count[51:60])
+                    #print(self.count[61:70])
+                    #print(self.count[71:80])
+                    #print(self.count[81:90])
+                    #print(self.count[91:100])
 
 
             reach_goal = (total_reward > 0) if self.mode in ["std", "relative"] else (total_reward < 0)

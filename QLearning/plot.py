@@ -176,7 +176,7 @@ def plot_qvalue_snapshots(agent, path="qvalue_snapshots.png", grid_size=10):
     axes_flat = axes.flatten()
 
     # uncomment if wanting to use different range
-    #if agent.update_mode in ["std", "relative"]:
+    #if agent.mode in ["std", "relative"]:
     #    q_vals = np.concatenate(
     #            [np.max(qtable, axis=1) for _, (_, qtable, _, _, _) in snapshots]
     #        )
@@ -188,7 +188,7 @@ def plot_qvalue_snapshots(agent, path="qvalue_snapshots.png", grid_size=10):
     #vmin, vmax = float(q_vals.min()), float(q_vals.max())
 
     # imposing range
-    vmin, vmax = (0.0, 1.0) if agent.update_mode in ["std", "relative"] else (-1.0, 0.0)
+    vmin, vmax = (0.0, 1.0) if agent.mode in ["std", "relative"] else (-1.0, 0.0)
         
     # drawing snapshots
     for i, (key, (ep, qtable, desc, _, _)) in enumerate(snapshots):
@@ -260,7 +260,7 @@ def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10
     axes_flat = axes.flatten()
 
      # uncomment if wanting to use different range
-    #if agent.update_mode in ["std", "relative"]:
+    #if agent.mode in ["std", "relative"]:
     #    q_vals = np.concatenate(
     #            [np.max(qtable, axis=1) for _, (_, qtable, _, _, _) in snapshots]
     #        )
@@ -272,7 +272,7 @@ def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10
     #vmin, vmax = float(q_vals.min()), float(q_vals.max())
 
     # imposing range
-    vmin, vmax = (0.0, 1.0) if agent.update_mode in ["std", "relative"] else (-1.0, 0.0)
+    vmin, vmax = (0.0, 1.0) if agent.mode in ["std", "relative"] else (-1.0, 0.0)
 
     for i, (key, (ep, qtable, desc, batches, agent_path)) in enumerate(snapshots):
         ax = axes_flat[i]
@@ -301,7 +301,7 @@ def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10
         if batches and agent.replay_mode == "backward" and only_one:
             batches = [max(batches, key=len)]
         # else selects the last one
-        elif agent.replay_mode in ["dyna", "prioritized_sweeping"] and only_one:
+        elif batches and agent.replay_mode in ["dyna", "prioritized_sweeping", "value_iteration"] and only_one:
                 batches = [batches[-1]]
         
         # computing (x, y) coords and adding visual jitter
@@ -312,7 +312,7 @@ def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10
             b_len = len(batch)
             if b_len == 0: continue
 
-            if agent.replay_mode == "dyna":
+            if agent.replay_mode in ["dyna", "value_iteration"]:
                 for i, (s, ns) in enumerate(batch):
                     t = i / max(b_len - 1, 1) 
                     dyna_color = replay_cmap(t)

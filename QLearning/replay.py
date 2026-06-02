@@ -98,3 +98,32 @@ class PrioritizedSweepingReplay():
 
     def is_empty(self):
         return len(self.priority_queue) == 0
+    
+class ValueIterationReplay():
+    """
+    MB-RL: value iteration (background planning)
+    """
+    def __init__(self):
+        self.model = {} # {(current_state, action): (next_state, reward, terminated)}
+        self.known_states = set()
+
+    def store_step(self, current_state, action, next_state, reward, terminated):
+        """saves or updates transition in the agent model"""
+        self.model[(current_state, action)] = (next_state, reward, terminated)
+        self.known_states.add(current_state)
+
+    def get_sweep_batch(self):
+        """returns all known transitions to make a complete sweep"""
+        return [
+            (s, a, ns, r, term) 
+            for (s, a), (ns, r, term) in self.model.items()
+        ]
+
+    def size(self):
+        """how many transitions are known to him"""
+        return len(self.model)
+    
+    def clear(self):
+        """empty buffer"""
+        self.model = {}
+        self.known_states = set()

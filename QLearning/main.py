@@ -12,15 +12,15 @@ UPDATE_MODES = ["std", "std_punish", "opposite", "relative", "relative_punish"]
 REPLAY_MODES = ["none", "prioritized_sweeping", "value_iteration", "backward", "dyna"]
 
 # --------------- CONFIG ---------------
-UPDATE_MODE     = UPDATE_MODES[3]
-REPLAY_MODE     = REPLAY_MODES[0]
+#UPDATE_MODE     = UPDATE_MODES[4]
+#REPLAY_MODE     = REPLAY_MODES[0]
 
-TRAINING_EPS    = 900
-MAX_EPS_STEPS   = 100
+TRAINING_EPS    = 700
+MAX_EPS_STEPS   = 75
 
 REPLAY_STEPS    = 25
 
-SHIFT_GOAL_EP   = TRAINING_EPS // 2
+SHIFT_GOAL_EP   = None #TRAINING_EPS // 2
 SHIFT_GOAL_POS  = (2, 8)
 
 GRID_SIZE       = 10    
@@ -99,23 +99,24 @@ def make_agent(env, update_mode, replay_mode):
 
 if __name__ == "__main__":
 
-    for u in UPDATE_MODES:
-        for r in REPLAY_MODES:
-            env, env_kwargs = make_env(u)
-            agent = make_agent(env, u, r)
+    for UPDATE_MODE in UPDATE_MODES:
+        for REPLAY_MODE in REPLAY_MODES:
+            env, env_kwargs = make_env(UPDATE_MODE)
+            agent = make_agent(env, UPDATE_MODE, REPLAY_MODE)
             
             agent.training()
         
             plot_qvalue_snapshots(
                 agent,
-                path=f"{OUTDIR}/heatmaps/{u}/{u}_{r}{SHIFTDIR}.png",
+                path=f"{OUTDIR}/heatmaps/{UPDATE_MODE}/{UPDATE_MODE}_{REPLAY_MODE}{SHIFTDIR}.png",
                 grid_size=GRID_SIZE,
             )
 
-            plot_replay_trajectories(
-                agent,
-                path=f"{OUTDIR}/replay_trajs/{u}/{u}_{r}{SHIFTDIR}.png",
-                grid_size=GRID_SIZE,
-                n_samples=8,
-                only_one=False,
-            )
+            if REPLAY_MODE != "none":
+                plot_replay_trajectories(
+                    agent,
+                    path=f"{OUTDIR}/replay_trajs/{UPDATE_MODE}/{UPDATE_MODE}_{REPLAY_MODE}{SHIFTDIR}.png",
+                    grid_size=GRID_SIZE,
+                    n_samples=8,
+                    only_one=True,
+                )
