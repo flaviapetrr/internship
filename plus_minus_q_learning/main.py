@@ -12,11 +12,11 @@ import gif
 # --------------- CHANGE CONFIG HERE ---------------
 
 RUN              = "single" # "single", "mode_comparison", "replay_comparison"
-FIXED_REPLAY     = "none" # "none", "prioritized_sweeping", "backward", "dyna"
-MODE             = "std_punish" # "std", "std_punish", "opposite", "relative", "relative_punish"
+FIXED_REPLAY     = "prioritized_sweeping" # "none", "prioritized_sweeping", "backward", "dyna"
+MODE             = "opposite" # "std", "std_punish", "opposite", "relative", "relative_punish"
 
-TRAINING_EPS     = 750
-EPISODE_STEPS    = 80
+TRAINING_EPS     = 900
+EPISODE_STEPS    = 90
 
 REPLAY_STEPS     = 20
 
@@ -24,16 +24,18 @@ REWARD_SHIFT_EP  = TRAINING_EPS // 2
 SHIFT_GOAL_POS   = (2, 8) 
 
 Q_INIT           = 0.0
-ALPHA            = 0.7
-ALPHA_V          = 0.7
+ALPHA            = 0.3
+ALPHA_V          = 0.3
 GAMMA            = 0.99
 EPS_START        = 1.0
 EPS_END          = 0.01
 EPS_DECAY        = 0.0005
 THETA            = 0.0001
 OUTDIR           = "./plus_minus_q_learning/visuals"
+SHIFTDIR         = (f"_shift" if REWARD_SHIFT_EP is not None else "")
 
 REPLAY_MODES = ["none", "prioritized_sweeping", "backward", "dyna"]
+MODES = ["std", "std_punish", "opposite", "relative", "relative_punish"]    
 
 COLORS = {
     "none":     "#888888",
@@ -102,70 +104,70 @@ def episodes_to_criterion(success_list, window=50, threshold=80.0):
 
 # --------------- SINGLE RUN ---------------
 
-def run_single(replay_mode):
+def run_single(mode, replay_mode):
 
     print(f"\n{'='*50}")
-    print(f" mode={MODE} - replay={replay_mode}")
+    print(f" mode={mode} - replay={replay_mode}")
     if REWARD_SHIFT_EP is not None:
         print(f" goal shift at ep {REWARD_SHIFT_EP} to {SHIFT_GOAL_POS}")
     print(f"{'='*50}")
 
-    env, env_kwargs = make_env(MODE)
+    env, env_kwargs = make_env(mode)
     shift_fn = None
 
     if REWARD_SHIFT_EP is not None:
-        shift_fn = lambda: make_env(MODE, SHIFT_GOAL_POS[0], SHIFT_GOAL_POS[1])[0]
+        shift_fn = lambda: make_env(mode, SHIFT_GOAL_POS[0], SHIFT_GOAL_POS[1])[0]
  
     agent = make_agent(
-        env, MODE, replay_mode,
+        env, mode, replay_mode,
         reward_shift_ep=REWARD_SHIFT_EP,
         shift_env_fn=shift_fn,
     )
     agent.train()
 
     plot.plot_training(agent,
-        path=f"{OUTDIR}/plots/training_summary/{MODE}_{replay_mode}.png",
+        path=f"{OUTDIR}/plots/training_summary/{mode}/{mode}_{replay_mode}{SHIFTDIR}.png",
         grid_size=GRID_SIZE,
     )
  
     if replay_mode != "none":
         plot.plot_replay_analysis(agent,
-            path=f"{OUTDIR}/plots/replay_analysis/{MODE}_{replay_mode}.png",
+            path=f"{OUTDIR}/plots/replay_analysis/{mode}/{mode}_{replay_mode}{SHIFTDIR}.png",
         )
         plot.plot_replay_trajectories(agent,
-            path=f"{OUTDIR}/plots/replay_trajectories/{MODE}_{replay_mode}.png",
+            path=f"{OUTDIR}/plots/replay_trajectories/{mode}/{mode}_{replay_mode}{SHIFTDIR}.png",
             grid_size=GRID_SIZE,
         )
-
  
     plot.plot_training_evolution(agent,
-        path=f"{OUTDIR}/trajectories/plots/evolution/{MODE}_{replay_mode}.png",
+        path=f"{OUTDIR}/plots/training_evolution/{mode}/{mode}_{replay_mode}{SHIFTDIR}.png",
         grid_size=GRID_SIZE,
     )
  
     plot.plot_qvalue_snapshots(agent,
-        path=f"{OUTDIR}/plots/qvalue_snapshots/{MODE}_{replay_mode}.png",
+        path=f"{OUTDIR}/plots/qvalue_snapshots/{mode}/{mode}_{replay_mode}{SHIFTDIR}.png",
         grid_size=GRID_SIZE,
     )
+#
+#    plot.plot_trajectories(agent,
+#        "FrozenLake-v1", EPISODE_STEPS, env_kwargs, num_episodes=50,
+#        path=f"{OUTDIR}/plots/egreedy_trajectories/{mode}/{mode}_{replay_mode}.png", grid_size=GRID_SIZE
+#    )
 #
 #    gif.record_gif(agent,
 #        "FrozenLake-v1", EPISODE_STEPS, env_kwargs,
 #        path=f"{OUTDIR}/gifs/{MODE}.gif", fps=3
 #    )
 #
-#    plot.plot_trajectories(agent,
-#        "FrozenLake-v1", EPISODE_STEPS, env_kwargs, num_episodes=50,
-#        path=f"{OUTDIR}/trajectories/plots/test/{MODE}_{replay_mode}.png", grid_size=GRID_SIZE
-#    )
-#
 #    gif.plot_sampled_trajectories_gif(agent,
-#        path=f"{OUTDIR}/trajectories/gifs/evolution/{MODE}_{replay_mode}.gif",
+#        path=f"{OUTDIR}/gifs/training_evolution/{mode}.gif",
 #        grid_size=GRID_SIZE,
 #        fps=3
 #    )
 #    
 #    gif.swarm_gif(
-#        "FrozenLake-v1", EPISODE_STEPS, env_kwargs, num_agents=30, path=f"{OUTDIR}/trajectories/gifs/test/{MODE}_{replay_mode}.gif", grid_size=GRID_SIZE
+#       path=f"{OUTDIR}/gifs/egreedy_trajectories/{mode}.gif",
+#       "FrozenLake-v1", EPISODE_STEPS, env_kwargs, num_agents=30, grid_size=GRID_SIZE
 #    )
     
 # --------------- MODE COMPARISON RUN ---------------
@@ -280,7 +282,7 @@ def run_mode_comparison(replay_mode="none"):
         ax_bar.grid(True, alpha=0.3, axis='y')
  
         slug = group_label.lower().replace(" ", "_").replace("-", "_")
-        path = f"{OUTDIR}/plots/mode_comparisons/{slug}_replay_{replay_mode}.png"
+        path = f"{OUTDIR}/plots/comparisons/mode_comparisons/{slug}_replay_{replay_mode}{SHIFTDIR}.png"
         plt.savefig(path, dpi=150, bbox_inches='tight')
         plt.show()
         print(f"\nMode comparison plot saved to {path}")
@@ -400,7 +402,7 @@ def run_replay_comparison():
     ax.grid(True, alpha=0.3, axis='y')
  
     plt.tight_layout()
-    path = f"{OUTDIR}/plots/replay_comparisons/{MODE}.png"
+    path = f"{OUTDIR}/plots/comparisons/replay_comparisons/{MODE}{SHIFTDIR}.png"
     plt.savefig(path, dpi=150, bbox_inches='tight')
     plt.show()
     print(f"\nReplay comparison plot saved to {path}")
@@ -418,7 +420,11 @@ if __name__ == "__main__":
 
     if RUN == "single":
         # single replay mode
-        run_single(replay_mode=FIXED_REPLAY)
+#        for m in MODES:
+#            for r in REPLAY_MODES:
+#                run_single(mode=m, replay_mode=r)
+#
+        run_single(mode=MODE, replay_mode=FIXED_REPLAY)
 
     elif RUN == "mode_comparison":
         # compare all Q-learning modes

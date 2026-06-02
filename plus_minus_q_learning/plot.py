@@ -337,18 +337,31 @@ def plot_training(agent, path="training_summary.png", grid_size=10):
     ax_len.legend(fontsize=8)
     ax_len.grid(True, alpha=0.3)
 
+    # getting global range
+    q_tab = [agent.q_table]
+    if shifted and "at_shift" in agent.q_snapshots:
+        q_tab.append(agent.q_snapshots["at_shift"][1])
+
+    if agent.mode in ["std", "relative"]:
+        q_vals = np.concatenate([np.max(qt, axis=1) for qt in q_tab])
+    else:
+        q_vals = np.concatenate([np.min(qt, axis=1) for qt in q_tab])
+
+    vmin, vmax = float(q_vals.min()), float(q_vals.max())
+    if vmin == vmax: vmax += 1e-5
+
     # subplot 3 (and 4)
     if shifted:
         if "at_shift" in agent.q_snapshots:
-            ep, q_snap, desc_snap = agent.q_snapshots["at_shift"]
-            nr = _heatmap(agent, grid_size, desc_snap, initial_desc, ax_snap, q_table=q_snap, shifted=shifted)
-            ax_snap.set_title(f"Q-value ({nr} Q)    |   At Shift (ep {ep})")
+            _, q_snap, desc_snap = agent.q_snapshots["at_shift"]
+            nr = _heatmap(agent, grid_size, desc_snap, initial_desc, ax_snap, q_table=q_snap, shifted=shifted, vmin=vmin, vmax=vmax)
+            ax_snap.set_title(f"At Shift Q-value Heatmap  |   {nr} Q + policy arrows")
 
         else:
-            nr = _heatmap(agent, grid_size, desc, initial_desc, ax_snap, q_table=agent.q_table, shifted=shifted)
-            ax_snap.set_title(f"First Goal Q-value Heatmap  |   {nr} Q = policy arrows")
+            nr = _heatmap(agent, grid_size, desc, initial_desc, ax_snap, q_table=agent.q_table, shifted=shifted, vmin=vmin, vmax=vmax)
+            ax_snap.set_title(f"Final Goal Q-value Heatmap  |   {nr} Q + policy arrows")
         
-    nr_final = _heatmap(agent, grid_size, desc, initial_desc, ax_final, q_table=agent.q_table, shifted=shifted)
+    nr_final = _heatmap(agent, grid_size, desc, initial_desc, ax_final, q_table=agent.q_table, shifted=shifted, vmin=vmin, vmax=vmax)
     ax_final.set_title(f"Final Q-value Heatmap    |   {nr_final} Q + policy arrows")
 
     plt.tight_layout()
@@ -368,7 +381,9 @@ def plot_replay_analysis(agent, path="replay_analysis.png", window=50):
     eps_x = np.arange(n)
     shifted = getattr(agent, 'shift_happened_ep', None) is not None
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    is_model_based = agent.replay_mode in ["prioritized_sweeping", "dyna"]
+    ncols = 3 if is_model_based else 2
+    fig, axes = plt.subplots(1, ncols, figsize=(6 * ncols, 6))
     fig.suptitle(
         f"Replay analysis  |  mode={agent.mode}  alpha={agent.alpha}  episodes={agent.training_episodes}   q_table initial values={agent.q_init}",
         fontsize=13, fontweight='bold'
@@ -409,22 +424,23 @@ def plot_replay_analysis(agent, path="replay_analysis.png", window=50):
     ax.grid(True, alpha=0.3)
 
     # subplot 3
-    ax = axes[2]
-    max_pairs = agent.state_space * agent.action_space
-    model_arr = np.array(agent.model_sizes)
-    ax.plot(eps_x, model_arr, color='green', linewidth=1.8,
-            label='(s,a) pairs in model')
-    ax.axhline(max_pairs, color='gray', linestyle='--', linewidth=0.8,
-                label=f'Max possible ({max_pairs})')
-    if shifted:
-        ax.axvline(agent.shift_happened_ep, color='gray', linestyle='--', linewidth=0.8,
-            label=f'Goal shift: ep {agent.shift_happened_ep}')
-    ax.set_title("Model Coverage over Episodes")
-    ax.set_xlabel("Episode")
-    ax.set_ylabel("# (s, a) pairs known")
-    ax.set_ylim(0, max_pairs * 1.1)
-    ax.legend(fontsize=8)
-    ax.grid(True, alpha=0.3)
+    if is_model_based:
+        ax = axes[2]
+        max_pairs = agent.state_space * agent.action_space
+        model_arr = np.array(agent.model_sizes)
+        ax.plot(eps_x, model_arr, color='green', linewidth=1.8,
+                label='(s,a) pairs in model')
+        ax.axhline(max_pairs, color='gray', linestyle='--', linewidth=0.8,
+                    label=f'Max possible ({max_pairs})')
+        if shifted:
+            ax.axvline(agent.shift_happened_ep, color='gray', linestyle='--', linewidth=0.8,
+                label=f'Goal shift: ep {agent.shift_happened_ep}')
+        ax.set_title("Model Coverage over Episodes")
+        ax.set_xlabel("Episode")
+        ax.set_ylabel("# (s, a) pairs known")
+        ax.set_ylim(0, max_pairs * 1.1)
+        ax.legend(fontsize=8)
+        ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
     plt.savefig(path, dpi=150, bbox_inches='tight')
@@ -432,10 +448,12 @@ def plot_replay_analysis(agent, path="replay_analysis.png", window=50):
     print(f"Replay Analysis plot saved to {path}")
 
 def plot_trajectories(agent, env_id, max_steps, env_kwargs, num_episodes=50, epsilon_test=0.1, path="all_trajectories.png", grid_size=10):
-        """performing N episodes
-            after training
-            epsilon-greedy police
-            poltting the trajectories + visual jitter"""
+        """
+        performing N episodes
+        after training
+        epsilon-greedy police
+        poltting the trajectories + visual jitter
+        """
         test_env = gym.make(env_id, max_episode_steps=max_steps, **env_kwargs)
         desc = test_env.unwrapped.desc.astype(str)
         
@@ -472,7 +490,6 @@ def plot_trajectories(agent, env_id, max_steps, env_kwargs, num_episodes=50, eps
                 
             sampled_paths.append((ep, path_states))
 
-        # 
         _draw_traj_panel(
             fig, ax, grid_size, desc, desc, BG_COLORS, 
             shifted=False, 
@@ -500,8 +517,6 @@ def plot_qvalue_snapshots(agent, path="qvalue_snapshots.png", grid_size=10):
         shows max-Q per state with policy arrows overlaid
         highlights the goal cell with a border.
     """
-    arrows = {0: '←', 1: '↓', 2: '→', 3: '↑'}
-    CMAP = 'plasma'
 
     LABEL_MAP = {
         "first_goal":        "First Goal Reached",
@@ -538,9 +553,7 @@ def plot_qvalue_snapshots(agent, path="qvalue_snapshots.png", grid_size=10):
     ncols = min(n, 4)
     nrows = (n + ncols - 1) // ncols
 
-    fig, axes = plt.subplots(nrows, ncols,
-                                figsize=(ncols * 6, nrows * 6),
-                                squeeze=False)
+    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 6, nrows * 6), squeeze=False)
     axes_flat = axes.flatten()
 
     if agent.mode in ["std", "relative"]:
@@ -619,7 +632,7 @@ def plot_training_evolution(agent, path="training_evolution.png", grid_size=10):
             q_max = max(np.min(agent.q_table, axis=1).max(), np.min(q_shift_table, axis=1).max())
             q_min = min(np.min(agent.q_table, axis=1).min(), np.min(q_shift_table, axis=1).min())
 
-    shift_note = f" | goal shift at ep {shift_ep}"
+    shift_note = f" | goal shift at ep {agent.shift_happened_ep}"
     title = (f"Training Evolution   |   mode={agent.mode} replay={agent.replay_mode}    |   episodes={agent.training_episodes}{shift_note}")
     fig.suptitle(title, fontsize=14, fontweight='bold')
 
@@ -760,19 +773,18 @@ def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10
         batches = _get_replay_batches(replay_trans)
 
         # checking if drawing all replays or only the longest one
-        if batches:
+        if batches and agent.replay_mode == "backward" and only_longest_replay:
             batches = [max(batches, key=len)]
             
-        # genetrating coords (x, y) + jitter
+        # generating coords (x, y) + jitter
         node_x = {st: (st % grid_size) + np.random.uniform(-JITTER_VAL, JITTER_VAL) for st in range(agent.state_space)}
         node_y = {st: (st // grid_size) + np.random.uniform(-JITTER_VAL, JITTER_VAL) for st in range(agent.state_space)}
-        
+                
         for batch in batches:
             b_len = len(batch)
             if b_len == 0: continue
 
             first_s = batch[0][0]
-            # X di partenza
             ax.scatter(node_x[first_s], node_y[first_s], marker='x', s=45, color=replay_cmap(0.0), alpha=1.0, zorder=6, linewidths=2.5)
             
             for i, (s, ns) in enumerate(batch):
@@ -785,7 +797,7 @@ def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10
                     ax.scatter(sx, sy, s=20, color=color, alpha=0.9, zorder=4)
                 else:
                     ax.plot([sx, nsx], [sy, nsy], color=color, alpha=0.8, linewidth=2.5, solid_capstyle='round', zorder=5)
-
+    
         ax.set_title(f"Episode {eps_num}", fontsize=11, fontweight='bold')
         ax.set_xlim(-0.5, grid_size - 0.5)
         ax.set_ylim(grid_size - 0.5, -0.5)

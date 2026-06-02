@@ -128,7 +128,7 @@ class QLearningAgent():
         
         return self.env.action_space.sample()
 
-    def q_table_update(self, state, action, reward, next_state):
+    def q_table_update(self, state, action, reward, next_state, terminated=False):
         """
         update equation, depends on mode:
             1. std && std_punish:   classical one-step bellman equation
@@ -136,17 +136,25 @@ class QLearningAgent():
             3. relative:            contextual update equation
             4. relative_punish:     contextual update equation for punishment values
         """
+        if terminated:
+            best_next = 0.0
+        else:
+            if self.mode in ["opposite", "relative_punish"]:
+                best_next = np.min(self.q_table[next_state])
+            else:
+                best_next = np.max(self.q_table[next_state])
+
         if self.mode in ["std", "std_punish"]:
             self.q_table[state][action] += self.alpha * (
-            reward + self.gamma * np.max(self.q_table[next_state]) - self.q_table[state][action]
+            reward + self.gamma * best_next - self.q_table[state][action]
         )
         elif self.mode == "opposite":
             self.q_table[state][action] += self.alpha * (
-            reward + self.gamma * np.min(self.q_table[next_state]) - self.q_table[state][action]
+            reward + self.gamma * best_next - self.q_table[state][action]
         )
-        elif self.mode == "relative":
+        elif self.mode in ["relative", "relative_punish"]:
             # r_v = (r_chosen + sum(stored value of all unchosen states)) / nr.space
-            # first getting only the possible actions, no hitting  wall considered
+            # first getting possible actions
             valid = self.valid_actions[state]
             unchosen_valid = [a for a in valid if a != action]
             if unchosen_valid:
@@ -160,24 +168,7 @@ class QLearningAgent():
             self.v_table[state] += self.alpha_v * (r_v - self.v_table[state])
             
             self.q_table[state][action] += self.alpha * (
-                reward - self.v_table[state] + self.gamma * np.max(self.q_table[next_state]) - self.q_table[state][action]
-            )
-        elif self.mode == "relative_punish":
-            # r_v = (r_chosen + sum(stored value of all unchosen states)) / nr.space
-            # first getting only the possible actions, no hitting  wall considered
-            valid = self.valid_actions[state]
-            unchosen_valid = [a for a in valid if a != action]
-            if unchosen_valid:
-                sum_unchosen_q = sum(self.q_table[state][a] for a in unchosen_valid)
-                r_v = (reward + sum_unchosen_q) / (len(unchosen_valid) + 1)
-            else:
-                r_v = reward
-            # update V first
-            # V(s) = V(s) + alpha * (r_v - V(s))
-            self.v_table[state] += self.alpha_v * (r_v - self.v_table[state])
-            
-            self.q_table[state][action] += self.alpha * (
-                reward - self.v_table[state] + self.gamma * np.min(self.q_table[next_state]) - self.q_table[state][action]
+                reward - self.v_table[state] + self.gamma * best_next - self.q_table[state][action]
             )
 
     def epsilon_exponential_decay(self, episode):
@@ -202,7 +193,8 @@ class QLearningAgent():
                 and eps == self.reward_shift_ep
                 and self.shift_env_fn is not None
                 and self.shift_happened_ep is None):
-            # Save snapshot BEFORE switching (shows q-table at moment of change)
+
+                # saving snapshot
                 self._save_snapshot("at_shift", eps)
                 old_env = self.env
                 self.env = self.shift_env_fn()
@@ -232,29 +224,38 @@ class QLearningAgent():
                 self.state_visits[next_state] += 1
 
                 # saving experience
-                self.episode_memory.append((state, action, reward, next_state))
+                self.episode_memory.append((state, action, reward, next_state, terminated))
 
                 # TD error before update
-                if self.mode in ["opposite", "relative_punish"]:
-                    best_next = np.min(self.q_table[next_state])
+                if terminated:
+                    best_next = 0.0
                 else:
-                    best_next = np.max(self.q_table[next_state])
+                    if self.mode in ["opposite", "relative_punish"]:
+                        best_next = np.min(self.q_table[next_state])
+                    else:
+                        best_next = np.max(self.q_table[next_state])
+                
+                # relative algorithm TD error 
+                if self.mode in ["relative", "relative_punish"]:
+                    td_error = abs(reward - self.v_table[state] + self.gamma * best_next - self.q_table[state][action])
+                else:
+                    td_error = abs(reward + self.gamma * best_next - self.q_table[state][action])
 
-                td_error = abs(reward + self.gamma * best_next - self.q_table[state][action])
                 total_td_error += td_error
  
                 # updating q-table
-                if self.replay_mode == "none":
-                    self.q_table_update(state, action, reward, next_state)
+                self.q_table_update(state, action, reward, next_state, terminated)
  
                 # updating model
-                if state not in self.model:
-                    self.model[state] = {}
-                self.model[state][action] = (reward, next_state) 
- 
-                if next_state not in self.predecessors:
-                    self.predecessors[next_state] = set()
-                self.predecessors[next_state].add((state, action)) 
+                if self.replay_mode in ["dyna", "prioritized_sweeping"]:
+                    if state not in self.model:
+                        self.model[state] = {}
+                    self.model[state][action] = (reward, next_state, terminated) 
+                
+
+                    if next_state not in self.predecessors:
+                        self.predecessors[next_state] = set()
+                    self.predecessors[next_state].add((state, action)) 
  
                 # seed priority queue for prioritized sweeping
                 if self.replay_mode == "prioritized_sweeping" and td_error > self.theta:
@@ -350,8 +351,8 @@ class QLearningAgent():
         replay_batch = self.episode_memory[-n_steps:][::-1]
         transitions = []
 
-        for state, action, reward, next_state in replay_batch:
-            self.q_table_update(state, action, reward, next_state)
+        for state, action, reward, next_state, terminated in replay_batch:
+            self.q_table_update(state, action, reward, next_state, terminated)
             transitions.append((state, next_state))
 
         return transitions
@@ -371,24 +372,31 @@ class QLearningAgent():
             _, (state, action) = heapq.heappop(self.priority_queue)
             
             # recovering experience from model
-            reward, next_state = self.model[state][action]
+            reward, next_state, terminated = self.model[state][action]
             
             # updating q-table based on model
-            self.q_table_update(state, action, reward, next_state)
+            self.q_table_update(state, action, reward, next_state, terminated)
             
             # proparating
             if state in self.predecessors:
                 for pre_state, pre_action in self.predecessors[state]:
-                    pre_reward, _ = self.model[pre_state][pre_action]
+                    pre_reward, _, pre_terminated = self.model[pre_state][pre_action]
                     
+                    if pre_terminated:
+                        best_next_q = 0.0
                     # computing "surprise" and checking against threshold theta
-                    if self.mode in ["opposite", "relative_punish"]:
-                        best_next_q = np.min(self.q_table[state])
                     else:
-                        best_next_q = np.max(self.q_table[state])
+                        if self.mode in ["opposite", "relative_punish"]:
+                            best_next_q = np.min(self.q_table[state])
+                        else:
+                            best_next_q = np.max(self.q_table[state])
 
                     current_q = self.q_table[pre_state][pre_action]
-                    td_error = abs(pre_reward + self.gamma * best_next_q - current_q)
+
+                    if self.mode in ["relative", "relative_punish"]:
+                        td_error = abs(pre_reward - self.v_table[pre_state] + self.gamma * best_next_q - current_q)
+                    else:
+                        td_error = abs(pre_reward + self.gamma * best_next_q - current_q)
 
                     if td_error > self.theta:
                         heapq.heappush(self.priority_queue, (-td_error, (pre_state, pre_action)))
@@ -413,8 +421,8 @@ class QLearningAgent():
         for _ in range(n_steps):
             s = random.choice(states_with_model)
             a = random.choice(list(self.model[s].keys()))
-            reward, next_state = self.model[s][a]
-            self.q_table_update(s, a, reward, next_state)
+            reward, next_state, terminated = self.model[s][a]
+            self.q_table_update(s, a, reward, next_state, terminated)
             transitions.append((s, next_state))
         
         return transitions
