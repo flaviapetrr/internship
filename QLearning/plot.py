@@ -8,6 +8,7 @@ LABEL_MAP = {
         "first_goal_p10":    "+10 ep After First Goal",
         "5_times_goal":      "Reach First Goal 5 Times",
         "at_shift":          "At Reward / Goal Shift",
+        "at_obs_add":        "Obstacles Added",
         "first_new_goal":    "First New Goal Reached",
         "first_new_goal_p10": "+10 ep After New Goal",
         "5_times_new_goal":      "Reach New Goal 5 Times",
@@ -25,29 +26,35 @@ def _draw_cell_borders(plot, c, r, cell, is_old_goal, zorder):
     elif cell == 'S':
         plot.add_patch(plt.Rectangle((c - 0.5, r - 0.5), 1, 1, fill=False, edgecolor='green', 
                                      linewidth=2.5, zorder=zorder))
+    elif cell == 'H':
+        plot.add_patch(plt.Rectangle((c - 0.5, r - 0.5), 1, 1, fill=True, color='#2c2c2c', alpha=0.3, zorder=1))
+        plot.add_patch(plt.Rectangle((c - 0.5, r - 0.5), 1, 1, fill=False, edgecolor='black', linewidth=1.5, zorder=zorder))
     
 def _write_cell_text(plot, c, r, cell, is_old_goal, shifted, text_color='black', 
-                     pos=None, val=None, arrow=None, zorder=None):
+                     pos=False, val=None, arrow=None, zorder=None):
 
     text_kwargs = {'ha': 'center', 'va': 'center', 'fontsize': 12}
 
     if zorder is not None:
         text_kwargs['zorder'] = zorder
 
-    if pos is not None:
-        if cell in ['H', 'S']:
+    if pos:
+        if cell == 'H':
+            plot.text(c, r, 'X', color='black', fontweight='bold', alpha=1.0, **text_kwargs)
+        elif cell == 'F':  
             plot.text(c, r, cell, color='black', fontweight='bold', alpha=0.5, **text_kwargs)
         elif cell == 'G':
             label = 'G2' if shifted else 'G'
             plot.text(c, r, label, color='black', fontweight='bold', alpha=0.8, **text_kwargs)
         elif is_old_goal:
             plot.text(c, r, 'G1', color='gray', fontweight='bold', alpha=0.8, **text_kwargs)
-            
-    if arrow is not None:
-        plot.text(c, r - 0.18, arrow, ha='center', va='center', fontsize=9, fontweight='bold', color=text_color)
-    if val is not None:
-        plot.text(c, r + 0.22, f"{val:.3f}", ha='center', va='center', fontsize=7.5, fontweight='bold', color=text_color)
-        
+
+    if cell != 'H':
+        if arrow is not None:
+            plot.text(c, r - 0.18, arrow, ha='center', va='center', fontsize=9, fontweight='bold', color=text_color)
+        if val is not None:
+            plot.text(c, r + 0.22, f"{val:.3f}", ha='center', va='center', fontsize=7.5, fontweight='bold', color=text_color)
+
 def _heatmap(agent, grid_size, desc, initial_desc, plot, shifted, q_table=None, vmin=None, vmax=None, 
              cmap="Blues", alpha=1.0, show_text=True, show_cbar=True, zorder=1):
     """
@@ -168,7 +175,7 @@ def plot_qvalue_snapshots(agent, path="qvalue_snapshots.png", grid_size=10):
     snapshots.sort(key=lambda x: x[1][0])
 
     n = len(snapshots)
-    ncols = min(n, 4)
+    ncols = min(n, 3) if agent.add_obs_ep is not None else min(n, 4)
     nrows = (n + ncols - 1) // ncols
 
     fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 6, nrows * 6), squeeze=False,
@@ -224,11 +231,12 @@ def plot_qvalue_snapshots(agent, path="qvalue_snapshots.png", grid_size=10):
     plt.close()
     print(f"[plot_qvalue_snapshots]         saved to -> {path}")
 
-def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10, n_samples=8, only_one=True):
+def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10, key_moments=True, n_samples=8, only_one=True):
     """
     Plots replay trajectories over the Q-value heatmap
     
     Args:
+        key_moments:            bool, if true plots same snapshots as the q-val heatmap, else samples n_samples equally spaced
         n_samples:              nr of sampled episodes
         only_one:               option to plot only one traj out of all the replays per step for visual ease
     """
@@ -241,9 +249,12 @@ def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10
 
     desc = agent.env.unwrapped.desc.astype(str)
     initial_desc = getattr(agent, 'initial_desc', desc)
-
-    snapshots = [(k, agent.q_snapshots[k]) for k in LABEL_MAP.keys() if k in agent.q_snapshots]
     
+    if key_moments:
+        snapshots = [(k, agent.q_snapshots[k]) for k in LABEL_MAP.keys() if k in agent.q_snapshots]
+    else:
+        snapshots = [("", snap) for snap in agent.eq_snapshots]
+
     if not snapshots:
         print("[plot_qvalue_snapshots] No snapshots to plot - skipping")
         return
@@ -252,14 +263,14 @@ def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10
     snapshots.sort(key=lambda x: x[1][0])
 
     n = len(snapshots)
-    ncols = min(n, 4)
+    ncols = min(n, 3) if agent.add_obs_ep is not None else min(n, 4)
     nrows = (n + ncols - 1) // ncols
 
     fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 6, nrows * 6), squeeze=False,
                              constrained_layout=True, gridspec_kw={'wspace': 0.05, 'hspace': 0.05})
     axes_flat = axes.flatten()
 
-     # uncomment if wanting to use different range
+    # uncomment if wanting to use different range
     #if agent.mode in ["std", "relative"]:
     #    q_vals = np.concatenate(
     #            [np.max(qtable, axis=1) for _, (_, qtable, _, _, _) in snapshots]
@@ -356,8 +367,11 @@ def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10
                 if end_x: ax.scatter(end_x, end_y, s=15, c=end_c, alpha=1.0, zorder=5)
     
         # single subtitles
-        label_text = LABEL_MAP.get(key, key)
-        ax.set_title(f"{label_text}   |   ep {ep}", fontsize=12, fontweight='bold')
+        if key_moments:
+            label_text = LABEL_MAP.get(key, key)
+            ax.set_title(f"{label_text}   |   ep {ep}", fontsize=12, fontweight='bold')
+        else:
+            ax.set_title(f"Ep {ep}", fontsize=12, fontweight='bold')
 
     # main title
     shift_note = (f"  |  goal shift at ep {agent.shift_happened_ep}"

@@ -3,12 +3,11 @@
 
 import gymnasium as gym
 import numpy as np
-import random as rand
 
 UPDATE_MODES = ["std", "std_punish", "opposite", "relative", "relative_punish"]    
 REPLAY_MODES = ["none", "prioritized_sweeping", "value_iteration", "backward", "dyna"]
 
-class QLearningAgent ():
+class QLearningAgent():
 
     def __init__(
             self,
@@ -29,7 +28,8 @@ class QLearningAgent ():
             ps_steps: int               = 15,
             theta: float                = 0.0001,
             shift_goal_ep: int          = None,
-            shift_goal_pos: list          = (2, 8)
+            shift_goal_pos: list        = (2, 8),
+            add_obs_ep: int             = None
     ):  
         if update_mode not in UPDATE_MODES:
             raise ValueError(f"Error: '{update_mode}' not valid.\nValid options: {UPDATE_MODES}")
@@ -58,17 +58,20 @@ class QLearningAgent ():
         self.theta                  = theta
         self.shift_goal_ep          = shift_goal_ep
         self.shift_goal_pos         = shift_goal_pos
+        self.add_obs_ep             = add_obs_ep
         self.state_space            = env.observation_space.n
         self.action_space           = env.action_space.n
         self.q_table                = np.full((self.state_space, self.action_space), self.q_init)
         self.v_table                = np.zeros(self.state_space)
 
         self.shift_happened_ep      = None # actual episode in which goal shifted in env
+        self.obs_added_ep           = None # actual episode in which the obstacles are added
         self.first_goal_ep          = None # first time reaching goal ep
         self.five_goal_ep           = None # fifth time reaching goal ep         
         self.first_new_goal_ep      = None # first time reaching new goal ep -> after shift
         self.five_new_goal_ep       = None # fifth time reaching new goal ep -> after shift
         self.q_snapshots            = {} # snapshots dictionary
+        self.eq_snapshots           = []
         self.ep_reach_goal          = [] # list to track reaching goals
         self.goal_count             = 0 # goal reaching counter
         self.new_goal_count         = 0 # new goal reaching counter -> after shift

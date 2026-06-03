@@ -112,11 +112,16 @@ class ValueIterationReplay():
         self.model[(current_state, action)] = (next_state, reward, terminated)
         self.known_states.add(current_state)
 
+        # stupid debug to check model storage
+        #if next_state == 99:
+        #if reward != 0:
+        #    print(f"Update: State {current_state} | Action {action} -> Stored vals: {self.model[(current_state, action)]}")
+
     def get_sweep_batch(self):
         """returns all known transitions to make a complete sweep"""
         return [
-            (s, a, ns, r, term) 
-            for (s, a), (ns, r, term) in self.model.items()
+            (state, action, next_state, reward, terminated) 
+            for (state, action), (next_state, reward, terminated) in self.model.items()
         ]
 
     def size(self):

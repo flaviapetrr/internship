@@ -2,14 +2,12 @@ import numpy as np
 from agent import QLearningAgent
 from replay import BackwardReplay, DynaReplay, PrioritizedSweepingReplay, ValueIterationReplay
 
-# how many episode snapshots to save for the replay-trajectory plot
-N_PLOT_SNAPSHOTS = 8
-
 class Trainer(QLearningAgent):
 
-    def __init__(self, *args, env_factory=None, **kwargs):
+    def __init__(self, *args, env_factory=None, n_samples=8, **kwargs):
         super().__init__(*args, **kwargs)
         self.env_factory = env_factory
+        self.n_samples = n_samples
         self.count=np.zeros(self.state_space)
 
     def training(self):
@@ -24,12 +22,11 @@ class Trainer(QLearningAgent):
         # storing the initial grid description for the plot
         self.initial_desc = self.env.unwrapped.desc.astype(str)
  
-        # uncomment if want equally distributed plots
         # selecting equally distributed episodes for plot
-        #snapshot_ep = set(
-        #    int(round(i * (self.training_eps - 1) / (N_PLOT_SNAPSHOTS - 1)))
-        #    for i in range(N_PLOT_SNAPSHOTS)
-        #)
+        snapshot_ep = set(
+            int(round(i * (self.training_eps - 1) / (self.n_samples - 1)))
+            for i in range(self.n_samples)
+        )
 
         # initializing buffer
         if self.replay_mode == "backward":
@@ -40,6 +37,9 @@ class Trainer(QLearningAgent):
             self.buffer = PrioritizedSweepingReplay(theta=self.theta)
         elif self.replay_mode == "value_iteration":
             self.buffer = ValueIterationReplay()
+
+        # checking if obstacles are active
+        obstacles_active = (self.add_obs_ep == 0)
 
         for ep in range(self.training_eps):
             # checking if need to shift goal
@@ -55,13 +55,34 @@ class Trainer(QLearningAgent):
                 # generating and assigning new env
                 if self.env_factory is not None:
                     row, col = self.shift_goal_pos
-                    self.env = self.env_factory(row, col)
+                    self.env = self.env_factory(row, col, obstacles_active)
                 else:
                     raise RuntimeError("agent if configured for goal shift but env_factory does not exist")
                 
                 self.shift_happened_ep = ep
-                print(f"\n[shift]     goal moved at episode {ep}\n")
+                print(f"\n[env]     goal moved at episode {ep}\n")
 
+            # checking if need to add obstacles
+            if (self.add_obs_ep is not None
+                and self.add_obs_ep > 0
+                and ep == self.add_obs_ep 
+                and self.obs_added_ep is None):
+                
+                self._save_snapshot("at_obs_add", ep, episode_replay_batches, agent_path)
+                old_env = self.env
+                old_env.close()
+                # if wanting to reinitialize epsilon when obs spawn
+                # self.epsilon = self.epsilon_start
+
+                obstacles_active = True
+                
+                if self.env_factory is not None:
+                    # keeping goal position if not shifted
+                    row, col = self.shift_goal_pos if self.shift_happened_ep is not None else (9, 9)
+                    self.env = self.env_factory(row, col, obstacles_active)
+                
+                self.obs_added_ep = ep
+                print(f"\n[env]     obstacles added at episode {ep}\n")
             # reset
             current_state, _ = self.env.reset()
             step = 0
@@ -220,10 +241,15 @@ class Trainer(QLearningAgent):
             #checking snapshots
             self._check_and_save_snapshots(ep, reach_goal, episode_replay_batches, agent_path)
 
-            # uncomment if equally distributed plots are wanted for visual plot
-            #if ep in snapshot_ep:
-            #    self.replay_paths.append((ep, episode_replay_batches, self.q_table.copy()))
-            #    self.sampled_paths.append((ep, agent_path))
+            # storing equally distributed replay trajs and relative q-val heatmap
+            if ep in snapshot_ep:
+                self.eq_snapshots.append((
+                    ep,
+                    self.q_table.copy(),
+                    self.env.unwrapped.desc.astype(str).copy(),
+                    list(episode_replay_batches),
+                    list(agent_path)
+                ))
 
         # final snapshot
         self._save_snapshot("final", self.training_eps - 1, episode_replay_batches, agent_path)
