@@ -89,6 +89,12 @@ class QLearningAgent():
         self.episode_rewards        = [] # to store accumulated reward
         self.episode_times          = [] # to store accumulated decision making time
 
+        # variables to track exploration
+        self.ep_physical_normal     = []
+        self.ep_physical_terminal   = []
+        self.ep_replay_normal       = []
+        self.ep_replay_terminal     = []
+
     def q_table_update(self, state, action, next_state, reward, terminated):
         """
         Update equation, depends on mode:

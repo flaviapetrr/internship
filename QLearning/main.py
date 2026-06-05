@@ -7,7 +7,7 @@ import math
 import random
 from train import Trainer
 from agent import CustomRewardWrapper
-from plot import plot_qvalue_snapshots, plot_replay_trajectories, plot_metrics
+from plot import plot_qvalue_snapshots, plot_replay_trajectories, plot_metrics, plot_exploration_stats
 
 UPDATE_MODES = ["std", "std_punish", "opposite", "relative", "relative_punish"]    
 REPLAY_MODES = ["none", "prioritized_sweeping", "value_iteration", "backward", "dyna"]
@@ -162,14 +162,14 @@ if __name__ == "__main__":
 #
 #            plot_qvalue_snapshots(
 #                agent,
-#                path=f"{OUTDIR}/heatmaps/{UPDATE_MODE}/{UPDATE_MODE}_{REPLAY_MODE}{SHIFTDIR}{OBSDIR}.png",
+#                path=f"{OUTDIR}/heatmaps/{UPDATE_MODE}/{UPDATE_MODE}_{REPLAY_MODE}{SHIFTDIR}{OBSDIR}.svg",
 #                grid_size=GRID_SIZE,
 #            )
 #
 #            if REPLAY_MODE != "none":
 #                plot_replay_trajectories(
 #                    agent,
-#                    path=f"{OUTDIR}/replay_trajs/{UPDATE_MODE}/{UPDATE_MODE}_{REPLAY_MODE}{SHIFTDIR}{OBSDIR}.png",
+#                    path=f"{OUTDIR}/replay_trajs/{UPDATE_MODE}/{UPDATE_MODE}_{REPLAY_MODE}{SHIFTDIR}{OBSDIR}.svg",
 #                    grid_size=GRID_SIZE,
 #                    key_moments=True,
 #                    only_one=True,
@@ -196,6 +196,11 @@ if __name__ == "__main__":
         all_rewards = np.zeros((NUM_RUNS, TRAINING_EPS))
         all_times = np.zeros((NUM_RUNS, TRAINING_EPS))
         
+        all_phys_norm = np.zeros((NUM_RUNS, TRAINING_EPS))
+        all_phys_term = np.zeros((NUM_RUNS, TRAINING_EPS))
+        all_rep_norm = np.zeros((NUM_RUNS, TRAINING_EPS))
+        all_rep_term = np.zeros((NUM_RUNS, TRAINING_EPS))
+
         for run in range(NUM_RUNS):
             print(f"\n--- RUN {run+1}/{NUM_RUNS} ---\n")
             
@@ -208,7 +213,13 @@ if __name__ == "__main__":
             # saving results of current run
             all_rewards[run, :] = agent.episode_rewards
             all_times[run, :] = agent.episode_times
+
+            all_phys_norm[run, :] = agent.ep_physical_normal
+            all_phys_term[run, :] = agent.ep_physical_terminal
+            all_rep_norm[run, :] = agent.ep_replay_normal
+            all_rep_term[run, :] = agent.ep_replay_terminal
             
+            print(f"Physical reached goals: {sum(agent.ep_physical_terminal)}")
             env.close()
             
         # saving complete matrix in the dictionary
@@ -216,10 +227,25 @@ if __name__ == "__main__":
             "rewards": all_rewards,
             "times": all_times
         }
+
+        results[label] = {
+            "rewards": all_rewards,
+            "times": all_times,
+            "phys_norm": all_phys_norm,
+            "phys_term": all_phys_term,
+            "rep_norm": all_rep_norm,
+            "rep_term": all_rep_term
+        }
         
     # plot
     plot_metrics(
         results, 
         shift_ep=SHIFT_GOAL_EP, 
-        path=f"{OUTDIR}/comparison_metrics_plot.png"
+        path=f"{OUTDIR}/comparison_metrics_plot.svg"
+    )
+
+    plot_exploration_stats(
+        results,
+        shift_ep=SHIFT_GOAL_EP,
+        path=f"{OUTDIR}/exploration_stats_plot.svg"
     )

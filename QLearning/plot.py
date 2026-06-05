@@ -144,7 +144,7 @@ def _heatmap(agent, grid_size, desc, initial_desc, plot, shifted, q_table=None, 
     # returns max or min to change plot titles according to mode
     return nr
 
-def plot_qvalue_snapshots(agent, path="qvalue_snapshots.png", grid_size=10):
+def plot_qvalue_snapshots(agent, path="qvalue_snapshots.svg", grid_size=10):
     """
     Heatmap snapshots of the Q-table at key moments during training
 
@@ -232,7 +232,7 @@ def plot_qvalue_snapshots(agent, path="qvalue_snapshots.png", grid_size=10):
     plt.close()
     print(f"[plot_qvalue_snapshots]         saved to -> {path}")
 
-def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10, key_moments=True, n_samples=8, only_one=True):
+def plot_replay_trajectories(agent, path="replay_trajectories.svg", grid_size=10, key_moments=True, n_samples=8, only_one=True):
     """
     Plots replay trajectories over the Q-value heatmap
     
@@ -404,7 +404,7 @@ def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10
     plt.close(fig)
     print(f"[plot_replay_trajectories]      saved to -> {path}")
 
-def plot_metrics(results_dict, shift_ep=None, path="training_metrics.png"):
+def plot_metrics(results_dict, shift_ep=None, path="training_metrics.svg"):
     """
     results_dict format:
     {
@@ -471,4 +471,46 @@ def plot_metrics(results_dict, shift_ep=None, path="training_metrics.png"):
     # il foglio bianco verso il basso apposta per farci stare la legenda, senza schiacciare niente.
     plt.savefig(path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"[plot_metrics]      saved to -> {path}")
+    print(f"[plot_metrics]          saved to -> {path}")
+
+def plot_exploration_stats(results_dict, shift_ep=None, path="exploration_stats.svg"):
+    num_configs = len(results_dict)
+    cols = 1
+    rows = (num_configs + cols - 1) // cols
+    
+    fig, axes = plt.subplots(rows, cols, figsize=(16, rows * 5))
+    axes = np.atleast_1d(axes).flatten()
+
+    for i, (label, data) in enumerate(results_dict.items()):
+        ax = axes[i]
+        
+        # comuting means
+        m_phys_norm = np.mean(data["phys_norm"], axis=0)
+        m_phys_term = np.mean(data["phys_term"], axis=0)
+        m_rep_norm  = np.mean(data["rep_norm"], axis=0)
+        m_rep_term  = np.mean(data["rep_term"], axis=0)
+        
+        episodes = np.arange(len(m_phys_norm))
+        
+        # stackplot
+        ax.stackplot(episodes, m_phys_norm, m_phys_term, m_rep_norm, m_rep_term,
+                     labels=['Physical: Std Steps', 'Physical: Goal/Punish', 'Replay: Std Steps', 'Replay: Goal/Punish'],
+                     colors=['#2ca02c', '#d62728', '#1f77b4', '#ff7f0e'], alpha=0.85)
+        
+        ax.set_title(label, fontsize=12, fontweight='bold')
+        ax.grid(True, alpha=0.3)
+        if shift_ep is not None:
+            ax.axvline(shift_ep, color='black', linestyle='--', linewidth=1.5, zorder=10)
+        
+    # higing unused spots
+    for j in range(num_configs, len(axes)):
+        axes[j].set_visible(False)
+        
+    # global lables
+    handles, labels = axes[0].get_legend_handles_labels()
+    #fig.subplots_adjust(bottom=0.15, hspace=0.3, wspace=0.2)
+    fig.legend(handles, labels, loc='lower center', ncol=4, bbox_to_anchor=(0.5, 0.02), fontsize=11)
+    
+    plt.savefig(path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"[plot_exploration_stats]        saved to -> {path}")

@@ -90,6 +90,10 @@ class Trainer(QLearningAgent):
             truncated = terminated = False
             total_reward = 0
             ep_decision_time = 0.0
+            ep_phys_norm = 0
+            ep_phys_term = 0
+            ep_rep_norm = 0
+            ep_rep_term = 0
 
             # computing epsilon / tau for the current episode
             if self.action_selection == "epsilon_greedy":
@@ -109,6 +113,7 @@ class Trainer(QLearningAgent):
             for step in range(self.max_episode_steps):
                 if terminated or truncated:
                     break
+                
                 # sarting counter
                 step_start_time = time.perf_counter()
 
@@ -121,6 +126,11 @@ class Trainer(QLearningAgent):
                 # performing selected action on the env
                 next_state, reward, terminated, truncated, _ = self.env.step(action)
 
+                if terminated:
+                    ep_phys_term += 1
+                else:
+                    ep_phys_norm += 1
+                    
                 #computing TD error aka surprise for prioritized sweeping
                 if self.update_mode in ["opposite", "relative_punish"]:
                     optimal_next = np.min(self.q_table[next_state])
@@ -158,6 +168,10 @@ class Trainer(QLearningAgent):
                             
                             # updating q_table
                             self.q_table_update(p_state, p_action, p_next_state, p_reward, p_terminated)
+                            
+                            if p_terminated: ep_rep_term += 1
+                            else: ep_rep_norm += 1
+
                             batch.append((p_state, p_next_state))
  
 
@@ -192,6 +206,9 @@ class Trainer(QLearningAgent):
                         # updating q_table using mental replay
                         self.q_table_update(d_state, d_action, d_next_state, d_reward, d_terminated)
 
+                        if d_terminated: ep_rep_term += 1
+                        else: ep_rep_norm += 1
+
                         batch.append((d_state, d_next_state))
 
                     episode_replay_batches.append(batch)
@@ -218,10 +235,12 @@ class Trainer(QLearningAgent):
 
                 for b_state, b_action, b_next_state, b_reward, b_terminated in backward_trajectory:
                     self.q_table_update(b_state, b_action, b_next_state, b_reward, b_terminated)
+                    if b_terminated: ep_rep_term += 1
+                    else: ep_rep_norm += 1
                     batch.append((b_state, b_next_state))
                 if batch:
                     episode_replay_batches.append(batch)
-            
+
             elif self.replay_mode == "value_iteration":
                 delta = float('inf')
                 sweeps = 0
@@ -243,6 +262,9 @@ class Trainer(QLearningAgent):
                     # updating q_table
                     self.q_table_update(v_state, v_action, v_next_state, v_reward, v_terminated)
                     
+                    if v_terminated: ep_rep_term += 1
+                    else: ep_rep_norm += 1
+
                     # computing q-vals abs difference
                     new_q = self.q_table[v_state][v_action]
                     delta = max(delta, abs(old_q - new_q))
@@ -253,7 +275,7 @@ class Trainer(QLearningAgent):
                     episode_replay_batches.append(batch)
                     
                 sweeps += 1
-
+                
             # adding end of episode replay time to the counter
             ep_decision_time += (time.perf_counter() - end_replay_start)
 
@@ -277,6 +299,11 @@ class Trainer(QLearningAgent):
             # saving data
             self.episode_times.append(ep_decision_time)
             self.episode_rewards.append(total_reward)
+
+            self.ep_physical_normal.append(ep_phys_norm)
+            self.ep_physical_terminal.append(ep_phys_term)
+            self.ep_replay_normal.append(ep_rep_norm)
+            self.ep_replay_terminal.append(ep_rep_term)
 
             if reach_goal:
                 self.goal_count += 1
