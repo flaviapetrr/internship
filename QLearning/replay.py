@@ -117,13 +117,15 @@ class ValueIterationReplay():
         #if reward != 0:
         #    print(f"Update: State {current_state} | Action {action} -> Stored vals: {self.model[(current_state, action)]}")
 
-    def get_sweep_batch(self):
-        """returns all known transitions to make a complete sweep"""
-        return [
+    def sample_n(self, n_samples):
+        """returns n_samples known trasitions"""
+        known_transitions = [
             (state, action, next_state, reward, terminated) 
             for (state, action), (next_state, reward, terminated) in self.model.items()
         ]
-
+        sample_size = min(n_samples, len(known_transitions))
+        return random.sample(known_transitions, sample_size)
+    
     def size(self):
         """how many transitions are known to him"""
         return len(self.model)

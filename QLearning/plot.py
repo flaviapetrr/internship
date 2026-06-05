@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.collections import LineCollection
 from matplotlib.colors import SymLogNorm, Normalize
+import agent
 
 LABEL_MAP = {
         "first_goal":        "First Goal Reached",
@@ -212,9 +213,9 @@ def plot_qvalue_snapshots(agent, path="qvalue_snapshots.png", grid_size=10):
     shift_note = (f"  |  goal shift at ep {agent.shift_happened_ep}"
                     if shifted else "")
     fig.suptitle(
-        f"{nr} Q-value Snapshots  |  mode={agent.mode}  alpha={agent.alpha}"
-        f"  episodes={agent.training_episodes}{shift_note}",
-        fontsize=16, fontweight='bold', y=1.05
+        f"{nr} Q-value Snapshots  |  episodes={agent.training_episodes}{shift_note}\n"
+        f"mode={agent.mode}      replay_mode={agent.replay_mode}     action_select={agent.action_selection}",
+        fontsize=16, fontweight='bold', y=1.10
     )
 
     # hiding unused axes
@@ -377,9 +378,9 @@ def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10
     shift_note = (f"  |  goal shift at ep {agent.shift_happened_ep}"
                     if shifted else "")
     fig.suptitle(
-        f"{nr} Q-value Snapshots  |  mode={agent.mode}  alpha={agent.alpha}"
-        f"  episodes={agent.training_episodes}{shift_note}",
-        fontsize=16, fontweight='bold', y=1.05
+        f"{nr} Q-value Snapshots  |  episodes={agent.training_episodes}{shift_note}\n"
+        f"mode={agent.mode}      replay_mode={agent.replay_mode}     action_select={agent.action_selection}",
+        fontsize=16, fontweight='bold', y=1.10
     )
 
     # hiding unused axes
@@ -402,3 +403,72 @@ def plot_replay_trajectories(agent, path="replay_trajectories.png", grid_size=10
     plt.savefig(path, dpi=150, bbox_inches='tight')
     plt.close(fig)
     print(f"[plot_replay_trajectories]      saved to -> {path}")
+
+def plot_metrics(results_dict, shift_ep=None, path="training_metrics.png"):
+    """
+    results_dict format:
+    {
+        "config_name(update_mode and repaly_mode)": {
+            "rewards": array (num_runs, num_episodes),
+            "times": array (num_runs, num_episodes)
+        }
+    }
+    """
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 8))
+    
+    colors = plt.cm.tab10(np.linspace(0, 1, len(results_dict)))
+    
+    for (label, data), color in zip(results_dict.items(), colors):
+
+        # subplot 1: cumulative reward
+        # summing reward for each run
+        cum_rewards = np.cumsum(data["rewards"], axis=1)
+        #computing meand and variance
+        mean_cum_rew = np.mean(cum_rewards, axis=0)
+        std_cum_rew = np.std(cum_rewards, axis=0)
+        
+        episodes = np.arange(len(mean_cum_rew))
+        
+        # adding label once to extract it later
+        ax1.plot(episodes, mean_cum_rew, label=label, color=color, linewidth=2)
+        ax1.fill_between(episodes, mean_cum_rew - std_cum_rew, mean_cum_rew + std_cum_rew, color=color, alpha=0.2)
+        
+        # accumulated time
+        times = data["times"]
+        mean_times = np.mean(times, axis=0)
+        std_times = np.std(times, axis=0)
+        
+        ax2.plot(episodes, mean_times, label=label, color=color, linewidth=2)
+        ax2.fill_between(episodes, mean_times - std_times, mean_times + std_times, color=color, alpha=0.2)
+
+    # subplot 1
+    ax1.set_title("Cumulative Reward per Episode", fontsize=14, fontweight='bold')
+    ax1.set_xlabel("Episodes", fontsize=12)
+    ax1.set_ylabel("Cumulative Reward", fontsize=12)
+    ax1.grid(True, alpha=0.3)
+
+    # subplot 2
+    ax2.set_title("Elapsed Time per Episode", fontweight='bold')
+    ax2.set_xlabel("Episodes", fontsize=12)
+    ax2.set_ylabel("Seconds", fontsize=12)
+    ax2.grid(True, alpha=0.3)
+    #uncomment if replay takes much longer than none
+    # ax2.set_yscale('log')
+
+    if shift_ep is not None:
+        ax1.axvline(shift_ep, color='gray', linestyle='--', linewidth=2, zorder=10, label=f'Goal shift (ep {shift_ep})')
+        ax2.axvline(shift_ep, color='gray', linestyle='--', linewidth=2, zorder=10)
+
+    # global labels
+    handles, labels = ax1.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+    
+    # 2. Invece di lottare coi margini interni, spingiamo la legenda a coordinate NEGATIVE
+    # y = -0.15 la butta fisicamente "al piano di sotto", ben distante dalla scritta "Episodes"
+    fig.legend(by_label.values(), by_label.keys(), loc='upper center', bbox_to_anchor=(0.5, -0), ncol=4, fontsize=11)
+
+    # 3. bbox_inches='tight' capirà che c'è roba fuori dal grafico e ALLARGHERÀ
+    # il foglio bianco verso il basso apposta per farci stare la legenda, senza schiacciare niente.
+    plt.savefig(path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"[plot_metrics]      saved to -> {path}")

@@ -7,50 +7,61 @@ import math
 import random
 from train import Trainer
 from agent import CustomRewardWrapper
-from plot import plot_qvalue_snapshots, plot_replay_trajectories
+from plot import plot_qvalue_snapshots, plot_replay_trajectories, plot_metrics
 
 UPDATE_MODES = ["std", "std_punish", "opposite", "relative", "relative_punish"]    
 REPLAY_MODES = ["none", "prioritized_sweeping", "value_iteration", "backward", "dyna"]
-
+ACTION_MODES = ["epsilon_greedy", "softmax"]
 # --------------- CONFIG ---------------
-UPDATE_MODE     = UPDATE_MODES[0]
-REPLAY_MODE     = REPLAY_MODES[1]
+UPDATE_MODE         = UPDATE_MODES[4]
+REPLAY_MODE         = REPLAY_MODES[1]
+ACTION_SELECT       = ACTION_MODES[1]
 
-TRAINING_EPS    = 750
-MAX_EPS_STEPS   = 100
+TRAINING_EPS        = 750
+MAX_EPS_STEPS       = 120
 
-REPLAY_STEPS    = 25
+REPLAY_STEPS        = 25
 
-SHIFT_GOAL_EP   = TRAINING_EPS // 2
-SHIFT_GOAL_POS  = (2, 8)
+SHIFT_GOAL_EP       = TRAINING_EPS // 2
+SHIFT_GOAL_POS      = (2, 8)
 
-GRID_SIZE       = 10    
+GRID_SIZE           = 10    
+
+
 
 # --------------- OBSTACLES CONFIG ---------------
-ADD_OBS_EP       = None #TRAINING_EPS // 3
-OBSTACLES_COUNT  = 15
+ADD_OBS_EP          = None #TRAINING_EPS // 3
+OBSTACLES_COUNT     = 15
 
 # --------------- PARAMS ---------------
+
+# epsilon greedy
 EPSILON_START   = 1.0
 EPSILON_MIN     = 0.05
-DECAY_RATE      = math.exp(math.log(EPSILON_MIN / EPSILON_START) / (TRAINING_EPS / 2 * 0.8)) # epsilon decay factor
-Q_INIT          = 0.0
-GAMMA           = 0.99
-ALPHA           = 0.3
-ALPHA_V         = 0.3
+DECAY_RATE      = math.exp(math.log(EPSILON_MIN / EPSILON_START) / (TRAINING_EPS * 0.8)) # epsilon decay factor
+# softmax
+TAU             = 0.1 # temperature
+
+Q_INIT              = 0.0
+GAMMA               = 0.99 # discount factor
+ALPHA               = 0.3 # learning rate
+ALPHA_V             = 0.3
 
 # --------------- REPLAY PARAMS ---------------
-BACKWARD_STEPS  = 10
-DYNA_STEPS      = 15
-PS_STEPS        = 15
-THETA           = 0.0001
+BACKWARD_STEPS      = 10
+DYNA_STEPS          = 15
+PS_STEPS            = 15
+VI_STEPS            = 15
+THETA               = 0.0001 # treshold for ps and vi
 
-OUTDIR           = "./QLearning/visuals"
-SHIFTDIR         = (f"_shift" if SHIFT_GOAL_EP is not None else "")
-OBSDIR           = (f"_obstacle" if ADD_OBS_EP is not None else "")
+OUTDIR              = "./QLearning/visuals"
+SHIFTDIR            = (f"_shift" if SHIFT_GOAL_EP is not None else "")
+OBSDIR              = (f"_obstacle" if ADD_OBS_EP is not None else "")
     
 def make_env(update_mode, goal_row=9, goal_col=9, obstacles_count=0, fixed_obstacles=None):
     
+    random.seed(14)
+
     # creating custom grid, all std frozen cells
     grid = [['F' for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
     
@@ -86,7 +97,7 @@ def make_env(update_mode, goal_row=9, goal_col=9, obstacles_count=0, fixed_obsta
 
     return env, env_kwargs, obstacle_spots
 
-def make_agent(env, update_mode, replay_mode, initial_obstacles):
+def make_agent(env, update_mode, replay_mode, action_selection, initial_obstacles):
 
     current_obstacles = list(initial_obstacles) if initial_obstacles else []
 
@@ -115,11 +126,13 @@ def make_agent(env, update_mode, replay_mode, initial_obstacles):
         env,
         update_mode=update_mode,
         replay_mode=replay_mode,
+        action_selection=action_selection,
         training_eps=TRAINING_EPS,
         max_episode_steps=MAX_EPS_STEPS,
-        epsilon_start= EPSILON_START,
-        epsilon_min= EPSILON_MIN,
+        epsilon_start=EPSILON_START,
+        epsilon_min=EPSILON_MIN,
         decay_rate=DECAY_RATE,
+        tau=TAU,
         q_init=Q_INIT,
         gamma=GAMMA,
         alpha=ALPHA,
@@ -127,6 +140,7 @@ def make_agent(env, update_mode, replay_mode, initial_obstacles):
         backward_steps=BACKWARD_STEPS,
         dyna_steps=DYNA_STEPS,
         ps_steps=PS_STEPS,
+        vi_steps=VI_STEPS,
         theta=THETA,
         shift_goal_ep=SHIFT_GOAL_EP,
         shift_goal_pos=SHIFT_GOAL_POS,
@@ -139,24 +153,73 @@ if __name__ == "__main__":
 
     init_obs_count = OBSTACLES_COUNT if ADD_OBS_EP == 0 else 0
 
-    #for UPDATE_MODE in UPDATE_MODES:
-    #    for REPLAY_MODE in REPLAY_MODES:
-    env, env_kwargs, initial_obstacles = make_env(UPDATE_MODE, obstacles_count=init_obs_count)
-    agent = make_agent(env, UPDATE_MODE, REPLAY_MODE, initial_obstacles)
-    
-    agent.training()
+#    for UPDATE_MODE in UPDATE_MODES:
+#        for REPLAY_MODE in REPLAY_MODES:
+#            env, env_kwargs, initial_obstacles = make_env(UPDATE_MODE, obstacles_count=init_obs_count)
+#            agent = make_agent(env, UPDATE_MODE, REPLAY_MODE, ACTION_SELECT, initial_obstacles)
+#            
+#            agent.training()
+#
+#            plot_qvalue_snapshots(
+#                agent,
+#                path=f"{OUTDIR}/heatmaps/{UPDATE_MODE}/{UPDATE_MODE}_{REPLAY_MODE}{SHIFTDIR}{OBSDIR}.png",
+#                grid_size=GRID_SIZE,
+#            )
+#
+#            if REPLAY_MODE != "none":
+#                plot_replay_trajectories(
+#                    agent,
+#                    path=f"{OUTDIR}/replay_trajs/{UPDATE_MODE}/{UPDATE_MODE}_{REPLAY_MODE}{SHIFTDIR}{OBSDIR}.png",
+#                    grid_size=GRID_SIZE,
+#                    key_moments=True,
+#                    only_one=True,
+#                )
 
-    plot_qvalue_snapshots(
-        agent,
-        path=f"{OUTDIR}/heatmaps/{UPDATE_MODE}/{UPDATE_MODE}_{REPLAY_MODE}{SHIFTDIR}{OBSDIR}.png",
-        grid_size=GRID_SIZE,
+    configs_to_test = [
+        ("std_punish", "none"),
+        ("opposite", "none"),
+        ("opposite", "backward"),
+        ("opposite", "prioritized_sweeping"),
+        ("relative_punish", "none"),
+        ("relative_punish", "backward"),
+        ("relative_punish", "prioritized_sweeping")
+    ]
+
+    NUM_RUNS = 5
+    results = {} # dictionary to accumulate results: reward and time
+
+    for (u_mode, r_mode) in configs_to_test:
+        label = f"{u_mode} + {r_mode}"
+        print(f"\n{'='*100}\nCONFIG: {label}\n{'='*100}")
+        
+        # initializing matrices to store cumulative results
+        all_rewards = np.zeros((NUM_RUNS, TRAINING_EPS))
+        all_times = np.zeros((NUM_RUNS, TRAINING_EPS))
+        
+        for run in range(NUM_RUNS):
+            print(f"\n--- RUN {run+1}/{NUM_RUNS} ---\n")
+            
+            env, env_kwargs, initial_obstacles = make_env(u_mode, obstacles_count=init_obs_count)
+            
+            agent = make_agent(env, u_mode, r_mode, ACTION_SELECT, initial_obstacles)
+            
+            agent.training()
+            
+            # saving results of current run
+            all_rewards[run, :] = agent.episode_rewards
+            all_times[run, :] = agent.episode_times
+            
+            env.close()
+            
+        # saving complete matrix in the dictionary
+        results[label] = {
+            "rewards": all_rewards,
+            "times": all_times
+        }
+        
+    # plot
+    plot_metrics(
+        results, 
+        shift_ep=SHIFT_GOAL_EP, 
+        path=f"{OUTDIR}/comparison_metrics_plot.png"
     )
-
-    if REPLAY_MODE != "none":
-        plot_replay_trajectories(
-            agent,
-            path=f"{OUTDIR}/replay_trajs/{UPDATE_MODE}/{UPDATE_MODE}_{REPLAY_MODE}{SHIFTDIR}{OBSDIR}.png",
-            grid_size=GRID_SIZE,
-            key_moments=True,
-            only_one=True,
-        )

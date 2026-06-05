@@ -1,3 +1,4 @@
+import time
 import numpy as np
 from agent import QLearningAgent
 from replay import BackwardReplay, DynaReplay, PrioritizedSweepingReplay, ValueIterationReplay
@@ -15,9 +16,10 @@ class Trainer(QLearningAgent):
         Train agent
         update equation depends on mode
         """
-        print("="*70)
-        print(f"TRAINING  |  ep: {self.training_eps}  |  update: {self.update_mode}  |  replay: {self.replay_mode}")
-        print("="*70)
+        print("="*100)
+        print(" "*40, "TRAINING\n"
+              f"ep: {self.training_eps}  |  update: {self.update_mode}  |  replay: {self.replay_mode}  |    action: {self.action_selection}")
+        print("="*100)
 
         # storing the initial grid description for the plot
         self.initial_desc = self.env.unwrapped.desc.astype(str)
@@ -50,7 +52,6 @@ class Trainer(QLearningAgent):
                 self._save_snapshot("at_shift", ep, episode_replay_batches, agent_path)
                 old_env = self.env
                 old_env.close()
-                self.epsilon = self.epsilon_start
 
                 # generating and assigning new env
                 if self.env_factory is not None:
@@ -88,8 +89,14 @@ class Trainer(QLearningAgent):
             step = 0
             truncated = terminated = False
             total_reward = 0
-            # computing epsilon for the current episode
-            self.epsilon = self.epsilon_decay()
+            ep_decision_time = 0.0
+
+            # computing epsilon / tau for the current episode
+            if self.action_selection == "epsilon_greedy":
+                self.epsilon = self.epsilon_decay()
+                action_select_param = (f"epsilon: {self.epsilon}")
+            elif self.action_selection == "softmax":
+                action_select_param = (f"tau: {self.tau}")
 
             if self.replay_mode == "backward":
                 self.buffer.clear()
@@ -102,8 +109,15 @@ class Trainer(QLearningAgent):
             for step in range(self.max_episode_steps):
                 if terminated or truncated:
                     break
+                # sarting counter
+                step_start_time = time.perf_counter()
+
                 # selecting action
-                action = self.action_selection(self.epsilon, current_state)
+                if self.action_selection == "epsilon_greedy":
+                    action = self.epsilon_greedy(self.epsilon, current_state)
+                elif self.action_selection == "softmax":
+                    action = self.softmax(self.tau, current_state)
+
                 # performing selected action on the env
                 next_state, reward, terminated, truncated, _ = self.env.step(action)
 
@@ -182,27 +196,19 @@ class Trainer(QLearningAgent):
 
                     episode_replay_batches.append(batch)
                     
-                elif self.replay_mode == "backward":
+                elif self.replay_mode in ["backward", "value_iteration"]:
                 
                     self.buffer.store_step(current_state, action, next_state, reward, terminated)
 
-                elif self.replay_mode == "value_iteration":
-                    
-                    self.buffer.store_step(current_state, action, next_state, reward, terminated)
-                    
-                    batch = []
-                    # sweepingthe whole model
-                    for v_state, v_action, v_next_state, v_reward, v_terminated in self.buffer.get_sweep_batch():
-                        
-                        # updating q_table using global mental replay
-                        self.q_table_update(v_state, v_action, v_next_state, v_reward, v_terminated)
-                        batch.append((v_state, v_next_state))
-
-                    episode_replay_batches.append(batch)
+                # adding step time to accumulator
+                step_end_time = time.perf_counter()
+                ep_decision_time += (step_end_time - step_start_time)
 
                 agent_path.append(next_state)
                 current_state = next_state
                 total_reward += reward
+
+            end_replay_start = time.perf_counter()
 
             # end of episode replay
             if self.replay_mode == "backward":
@@ -215,9 +221,44 @@ class Trainer(QLearningAgent):
                     batch.append((b_state, b_next_state))
                 if batch:
                     episode_replay_batches.append(batch)
+            
+            elif self.replay_mode == "value_iteration":
+                delta = float('inf')
+                sweeps = 0
+                max_sweeps = 100 # security limit if no convergence is reached
+
+
+                while delta > self.theta and sweeps < max_sweeps:
+                    delta = 0.0
+                    batch = []
+
+                # taking n_samples random transitions from the model
+                transitions = self.buffer.sample_n(self.vi_steps)
+                    
+                for v_state, v_action, v_next_state, v_reward, v_terminated in transitions:
+                    
+                    # saving old q-val before update
+                    old_q = self.q_table[v_state][v_action]
+                    
+                    # updating q_table
+                    self.q_table_update(v_state, v_action, v_next_state, v_reward, v_terminated)
+                    
+                    # computing q-vals abs difference
+                    new_q = self.q_table[v_state][v_action]
+                    delta = max(delta, abs(old_q - new_q))
+                    
+                    batch.append((v_state, v_next_state))
+
+                if batch:
+                    episode_replay_batches.append(batch)
+                    
+                sweeps += 1
+
+            # adding end of episode replay time to the counter
+            ep_decision_time += (time.perf_counter() - end_replay_start)
 
             if (ep + 1) % 100 == 0:
-                    print(f"Episode: {ep + 1} - epsilon: {self.epsilon}")
+                    print(f"Episode: {ep + 1} - {action_select_param}")
                     #print(self.count[:10])
                     #print(self.count[11:20])
                     #print(self.count[21:30])
@@ -232,6 +273,10 @@ class Trainer(QLearningAgent):
 
             reach_goal = (total_reward > 0) if self.mode in ["std", "relative"] else (total_reward < 0)
             self.ep_reach_goal.append(1 if reach_goal else 0)
+
+            # saving data
+            self.episode_times.append(ep_decision_time)
+            self.episode_rewards.append(total_reward)
 
             if reach_goal:
                 self.goal_count += 1
@@ -254,9 +299,9 @@ class Trainer(QLearningAgent):
         # final snapshot
         self._save_snapshot("final", self.training_eps - 1, episode_replay_batches, agent_path)
 
-        print("="*70)
-        print(" "*25, "TRAINING COMPLETE")
-        print("="*70)
+        print("="*100)
+        print(" "*40, "TRAINING COMPLETE")
+        print("="*100)
 
     def _check_and_save_snapshots(self, ep, reach_goal, replay_batches, agent_path):
         """Check conditions and save snapshot if met"""

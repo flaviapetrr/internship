@@ -14,11 +14,13 @@ class QLearningAgent():
             env,
             update_mode: str            = "std",
             replay_mode: str            = "none",
+            action_selection: str       = "epsilon_greedy",
             training_eps: int           = 400,
             max_episode_steps: int      = 100,
             epsilon_start: float        = 1.0,
             epsilon_min: float          = 0.01,
             decay_rate: float           = 0.99,
+            tau: float                  = 5,
             q_init: float               = 0.0,
             gamma: float                = 0.99,
             alpha: float                = 0.1,
@@ -26,6 +28,7 @@ class QLearningAgent():
             backward_steps: int         = 10,
             dyna_steps: int             = 10,
             ps_steps: int               = 15,
+            vi_steps: int               = 15,
             theta: float                = 0.0001,
             shift_goal_ep: int          = None,
             shift_goal_pos: list        = (2, 8),
@@ -41,6 +44,7 @@ class QLearningAgent():
         self.update_mode            = update_mode
         self.mode                   = update_mode # alias for plot_utils
         self.replay_mode            = replay_mode
+        self.action_selection       = action_selection
         self.training_eps           = training_eps
         self.training_episodes      = training_eps # alias for plot_utils
         self.max_episode_steps      = max_episode_steps
@@ -48,6 +52,7 @@ class QLearningAgent():
         self.epsilon_start          = epsilon_start
         self.epsilon_min            = epsilon_min
         self.decay_rate             = decay_rate
+        self.tau                    = tau
         self.q_init                 = q_init
         self.gamma                  = gamma
         self.alpha                  = alpha
@@ -55,6 +60,7 @@ class QLearningAgent():
         self.backward_steps         = backward_steps
         self.dyna_steps             = dyna_steps
         self.ps_steps               = ps_steps
+        self.vi_steps               = vi_steps
         self.theta                  = theta
         self.shift_goal_ep          = shift_goal_ep
         self.shift_goal_pos         = shift_goal_pos
@@ -80,6 +86,8 @@ class QLearningAgent():
         self.replay_paths           = [] # [(ep, replay_batches, q_table_snap), ...]
         self.sampled_paths          = [] # [(ep, agent_path), ...]
 
+        self.episode_rewards        = [] # to store accumulated reward
+        self.episode_times          = [] # to store accumulated decision making time
 
     def q_table_update(self, state, action, next_state, reward, terminated):
         """
@@ -114,17 +122,33 @@ class QLearningAgent():
                 reward - self.v_table[state] + self.gamma * optimal_next - self.q_table[state][action]
             )
 
-    def action_selection(self, epsilon, state):
+    def epsilon_greedy(self, epsilon, state):
         """epsilon-greedy action selection policy"""
         if np.random.random() > epsilon:
             q_vals = self.q_table[state]
             return np.random.choice(np.flatnonzero(q_vals == q_vals.max()))
         else:
             return np.random.randint(len(self.q_table[state]))
-    
+        
     def epsilon_decay(self):
         self.epsilon = max(self.epsilon_min, self.epsilon * self.decay_rate)
         return self.epsilon
+        
+    def softmax(self, tau, state):
+        """softmax action selection policy with Gibbs distribution"""
+        q_vals = self.q_table[state]
+
+        # taking max q-va lto then subtracting
+        # trick to ensure numeric stability, avoiding huge nrs
+        max_q = np.max(q_vals)
+
+        # comuting softmax
+        exp_q = np.exp((q_vals - max_q) / tau)
+        prob = exp_q / np.sum(exp_q)
+
+        # returns selected action
+
+        return np.random.choice(len(q_vals), p=prob)
     
 class CustomRewardWrapper(gym.RewardWrapper):
     def __init__(self, env, update_mode):
