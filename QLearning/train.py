@@ -1,4 +1,5 @@
 import time
+import random
 import numpy as np
 from agent import QLearningAgent
 from replay import BackwardReplay, DynaReplay, PrioritizedSweepingReplay, ValueIterationReplay
@@ -16,10 +17,11 @@ class Trainer(QLearningAgent):
         Train agent
         update equation depends on mode
         """
-        print("="*100)
+        selection_note = f"  tau: {(1/self.beta):.3f} beta: {self.beta}" if self.action_selection == "softmax" else ""
+        print("="*120)
         print(" "*40, "TRAINING\n"
-              f"ep: {self.training_eps}  |  update: {self.update_mode}  |  replay: {self.replay_mode}  |    action: {self.action_selection}")
-        print("="*100)
+              f"ep: {self.training_eps}  |  update: {self.update_mode}  |  replay: {self.replay_mode}  |    action: {self.action_selection}{selection_note}")
+        print("="*120)
 
         # storing the initial grid description for the plot
         self.initial_desc = self.env.unwrapped.desc.astype(str)
@@ -44,6 +46,10 @@ class Trainer(QLearningAgent):
         obstacles_active = (self.add_obs_ep == 0)
 
         for ep in range(self.training_eps):
+
+            agent_path = []
+            episode_replay_batches = []
+
             # checking if need to shift goal
             if (self.shift_goal_ep is not None
                 and ep == self.shift_goal_ep
@@ -84,8 +90,11 @@ class Trainer(QLearningAgent):
                 
                 self.obs_added_ep = ep
                 print(f"\n[env]     obstacles added at episode {ep}\n")
+
             # reset
             current_state, _ = self.env.reset()
+            agent_path = [current_state]
+            episode_replay_batches = [] # list of [(s, ns)] per replay event
             step = 0
             truncated = terminated = False
             total_reward = 0
@@ -94,19 +103,15 @@ class Trainer(QLearningAgent):
             ep_phys_term = 0
             ep_rep_norm = 0
             ep_rep_term = 0
+            ep_upd_phys = 0
+            ep_upd_rep = 0
 
-            # computing epsilon / tau for the current episode
+            # computing epsilon for the current episode
             if self.action_selection == "epsilon_greedy":
                 self.epsilon = self.epsilon_decay()
-                action_select_param = (f"epsilon: {self.epsilon}")
-            elif self.action_selection == "softmax":
-                action_select_param = (f"tau: {self.tau}")
 
             if self.replay_mode == "backward":
                 self.buffer.clear()
-            
-            agent_path = [current_state]
-            episode_replay_batches = [] # list of [(s, ns)] per replay event
             
             if ep % 100 == 0:
                 self.count = np.zeros(self.state_space)
@@ -121,15 +126,10 @@ class Trainer(QLearningAgent):
                 if self.action_selection == "epsilon_greedy":
                     action = self.epsilon_greedy(self.epsilon, current_state)
                 elif self.action_selection == "softmax":
-                    action = self.softmax(self.tau, current_state)
+                    action = self.softmax(self.beta, current_state)
 
                 # performing selected action on the env
                 next_state, reward, terminated, truncated, _ = self.env.step(action)
-
-                if terminated:
-                    ep_phys_term += 1
-                else:
-                    ep_phys_norm += 1
                     
                 #computing TD error aka surprise for prioritized sweeping
                 if self.update_mode in ["opposite", "relative_punish"]:
@@ -141,11 +141,21 @@ class Trainer(QLearningAgent):
                     optimal_next = 0.0
 
                 target = reward + self.gamma * optimal_next
+
                 td_error = abs(target - self.q_table[current_state][action])
 
                 # updating q_table
-                self.q_table_update(current_state, action, next_state, reward, terminated)
+                delta = self.q_table_update(current_state, action, next_state, reward, terminated)
                 
+                # real update: if value changed
+                if delta > 1e-8:
+                    ep_upd_phys += 1
+
+                if terminated:
+                    ep_phys_term += 1
+                else:
+                    ep_phys_norm += 1
+
                 self.count[next_state] += 1 
                 # per-step replay
                 if self.replay_mode == "prioritized_sweeping":
@@ -155,8 +165,9 @@ class Trainer(QLearningAgent):
                         self.buffer.push(td_error, current_state, action)
                         
                         batch = []
+                        window = []
 
-                        for _ in range(self.ps_steps):
+                        for _ in range(self.convergence_max):
                             if self.buffer.is_empty():
                                 break
                                 
@@ -167,7 +178,8 @@ class Trainer(QLearningAgent):
                             p_next_state, p_reward, p_terminated = self.buffer.model[(p_state, p_action)]
                             
                             # updating q_table
-                            self.q_table_update(p_state, p_action, p_next_state, p_reward, p_terminated)
+                            delta = self.q_table_update(p_state, p_action, p_next_state, p_reward, p_terminated)
+                            if delta > 1e-8: ep_upd_rep += 1
                             
                             if p_terminated: ep_rep_term += 1
                             else: ep_rep_norm += 1
@@ -191,23 +203,38 @@ class Trainer(QLearningAgent):
                                 # pushing in line if the error is high enough
                                 self.buffer.push(pred_error, pred_state, pred_action)
                             
-                            if batch:
-                                episode_replay_batches.append(batch)
+                            window.append(delta)
+                            if len(window) > self.convergence_n: 
+                                window.pop(0)
+                            if len(window) == self.convergence_n and sum(window) < self.convergence_eps:
+                                break
+                                
+                        if batch:
+                            episode_replay_batches.append(batch)
 
                 elif self.replay_mode == "dyna":
                 
                     self.buffer.store_step(current_state, action, next_state, reward, terminated)
                     
                     batch = []
-                    for _ in range(self.dyna_steps):
+                    window = []
+
+                    for _ in range(self.convergence_max):
                         # randomly selects a memory
                         d_state, d_action, d_next_state, d_reward, d_terminated = self.buffer.random_sample()
                         
                         # updating q_table using mental replay
-                        self.q_table_update(d_state, d_action, d_next_state, d_reward, d_terminated)
+                        delta = self.q_table_update(d_state, d_action, d_next_state, d_reward, d_terminated)
+                        if delta > 1e-8: ep_upd_rep += 1
 
                         if d_terminated: ep_rep_term += 1
                         else: ep_rep_norm += 1
+
+                        window.append(delta)
+                        if len(window) > self.convergence_n: 
+                            window.pop(0)
+                        if len(window) == self.convergence_n and sum(window) < self.convergence_eps:
+                            break
 
                         batch.append((d_state, d_next_state))
 
@@ -229,58 +256,72 @@ class Trainer(QLearningAgent):
 
             # end of episode replay
             if self.replay_mode == "backward":
-                backward_trajectory = self.buffer.backward_traj(self.backward_steps)
+                backward_trajectory = list(self.buffer.backward_traj(len(self.buffer.episode_history)))
 
                 batch = []
-
-                for b_state, b_action, b_next_state, b_reward, b_terminated in backward_trajectory:
-                    self.q_table_update(b_state, b_action, b_next_state, b_reward, b_terminated)
+                window = []
+                traj_len = len(backward_trajectory)
+                    
+                for i in range(self.convergence_max):
+                    
+                    b_state, b_action, b_next_state, b_reward, b_terminated = backward_trajectory[i % traj_len]
+                    
+                    delta = self.q_table_update(b_state, b_action, b_next_state, b_reward, b_terminated)
+                    if delta > 1e-8: ep_upd_rep += 1
+                    
                     if b_terminated: ep_rep_term += 1
                     else: ep_rep_norm += 1
+                    
                     batch.append((b_state, b_next_state))
+                    
+                    window.append(delta)
+                    if len(window) > self.convergence_n: 
+                        window.pop(0)
+                    if len(window) == self.convergence_n and sum(window) < self.convergence_eps:
+                        break
+
                 if batch:
                     episode_replay_batches.append(batch)
 
             elif self.replay_mode == "value_iteration":
-                delta = float('inf')
-                sweeps = 0
-                max_sweeps = 100 # security limit if no convergence is reached
+                # extracting known transitions
+                known_transitions = [
+                    (s, a, ns, r, term) for (s, a), (ns, r, term) in self.buffer.model.items()
+                ]
 
 
-                while delta > self.theta and sweeps < max_sweeps:
-                    delta = 0.0
+                if known_transitions:
                     batch = []
+                    window = []
+                    
+                    for _ in range(self.convergence_max):
+                        # randomly selecting transition from the model
+                        v_state, v_action, v_next_state, v_reward, v_terminated = random.choice(known_transitions)
+                        
+                        delta = self.q_table_update(v_state, v_action, v_next_state, v_reward, v_terminated)
+                        if delta > 1e-8: ep_upd_rep += 1
+                        
+                        if v_terminated: ep_rep_term += 1
+                        else: ep_rep_norm += 1
+                        
+                        batch.append((v_state, v_next_state))
+                        
+                        # Controllo di Convergenza
+                        window.append(delta)
+                        if len(window) > self.convergence_n: 
+                            window.pop(0)
+                        if len(window) == self.convergence_n and sum(window) < self.convergence_eps:
+                            break
 
-                # taking n_samples random transitions from the model
-                transitions = self.buffer.sample_n(self.vi_steps)
-                    
-                for v_state, v_action, v_next_state, v_reward, v_terminated in transitions:
-                    
-                    # saving old q-val before update
-                    old_q = self.q_table[v_state][v_action]
-                    
-                    # updating q_table
-                    self.q_table_update(v_state, v_action, v_next_state, v_reward, v_terminated)
-                    
-                    if v_terminated: ep_rep_term += 1
-                    else: ep_rep_norm += 1
-
-                    # computing q-vals abs difference
-                    new_q = self.q_table[v_state][v_action]
-                    delta = max(delta, abs(old_q - new_q))
-                    
-                    batch.append((v_state, v_next_state))
-
-                if batch:
-                    episode_replay_batches.append(batch)
-                    
-                sweeps += 1
+                    if batch:
+                        episode_replay_batches.append(batch)
                 
             # adding end of episode replay time to the counter
             ep_decision_time += (time.perf_counter() - end_replay_start)
 
+            decay_note = f"  -   self.epsilon" if self.action_selection == "epsilon_greedy" else ""
             if (ep + 1) % 100 == 0:
-                    print(f"Episode: {ep + 1} - {action_select_param}")
+                    print(f"Episode: {ep + 1}{decay_note}")
                     #print(self.count[:10])
                     #print(self.count[11:20])
                     #print(self.count[21:30])
@@ -305,6 +346,9 @@ class Trainer(QLearningAgent):
             self.ep_replay_normal.append(ep_rep_norm)
             self.ep_replay_terminal.append(ep_rep_term)
 
+            self.ep_updates_physical.append(ep_upd_phys)
+            self.ep_updates_replay.append(ep_upd_rep)
+
             if reach_goal:
                 self.goal_count += 1
                 if self.shift_happened_ep is not None and ep > self.shift_happened_ep:
@@ -326,9 +370,9 @@ class Trainer(QLearningAgent):
         # final snapshot
         self._save_snapshot("final", self.training_eps - 1, episode_replay_batches, agent_path)
 
-        print("="*100)
+        print("="*120)
         print(" "*40, "TRAINING COMPLETE")
-        print("="*100)
+        print("="*120)
 
     def _check_and_save_snapshots(self, ep, reach_goal, replay_batches, agent_path):
         """Check conditions and save snapshot if met"""
@@ -364,8 +408,11 @@ class Trainer(QLearningAgent):
             self.five_new_goal_ep = ep
             self._save_snapshot("5_times_new_goal", ep, replay_batches, agent_path)
 
-    def _save_snapshot(self, key, episode, replay_batches=[], agent_path=[]):
+    def _save_snapshot(self, key, episode, replay_batches=None, agent_path=None):
         """Save a copy of the current q_table + env desc under key"""
+        replay_batches = replay_batches or []
+        agent_path = agent_path or []
+
         self.q_snapshots[key] = (
             episode,
             self.q_table.copy(),

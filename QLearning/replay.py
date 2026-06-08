@@ -34,14 +34,27 @@ class DynaReplay():
     """
     def __init__(self):
         self.model = {} # {(current_state, action): (reward, next_state, terminated)}
-        self.visited_states = set()
-        self.state_actions = defaultdict(set)
+
+        # using list for sampling and set for control
+        self.visited_states_list = []
+        self.visited_states_set = set()
+
+        self.state_actions_list = defaultdict(list)
+        self.state_actions_set = defaultdict(set)
     
     def store_step(self, current_state, action, next_state, reward, terminated):
         """save step just performed in the algorithm model"""
         self.model[(current_state, action)] = (next_state, reward, terminated)
-        self.visited_states.add(current_state)
-        self.state_actions[current_state].add(action)
+
+        # if the state is new, adding it both to list and set
+        if current_state not in self.visited_states_set:
+            self.visited_states_set.add(current_state)
+            self.visited_states_list.append(current_state)
+
+        # idem for action
+        if action not in self.state_actions_set[current_state]:
+            self.state_actions_set[current_state].add(action)
+            self.state_actions_list[current_state].append(action)
 
         # stupid debug to check model storage
         #if next_state == 99:
@@ -51,8 +64,8 @@ class DynaReplay():
     def random_sample(self):
         """samples a situation already experienced in the past"""
         # randomly chooses key
-        state = random.choice(list(self.visited_states))
-        action = random.choice(list(self.state_actions[state]))
+        state = random.choice(self.visited_states_list)
+        action = random.choice(self.state_actions_list[state])
 
         # getting what actually happened from its model
         next_state, reward, terminated = self.model[(state, action)]

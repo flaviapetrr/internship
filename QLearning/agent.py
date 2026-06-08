@@ -20,15 +20,14 @@ class QLearningAgent():
             epsilon_start: float        = 1.0,
             epsilon_min: float          = 0.01,
             decay_rate: float           = 0.99,
-            tau: float                  = 5,
+            beta: float                  = 5,
             q_init: float               = 0.0,
             gamma: float                = 0.99,
             alpha: float                = 0.1,
             alpha_v: float              = 0.1,
-            backward_steps: int         = 10,
-            dyna_steps: int             = 10,
-            ps_steps: int               = 15,
-            vi_steps: int               = 15,
+            convergence_n: int          = 10, # moving window
+            convergence_eps: float      = 0.001, # convergence threshold
+            convergence_max: int        = 150, # max nr replay
             theta: float                = 0.0001,
             shift_goal_ep: int          = None,
             shift_goal_pos: list        = (2, 8),
@@ -52,15 +51,14 @@ class QLearningAgent():
         self.epsilon_start          = epsilon_start
         self.epsilon_min            = epsilon_min
         self.decay_rate             = decay_rate
-        self.tau                    = tau
+        self.beta                    = beta
         self.q_init                 = q_init
         self.gamma                  = gamma
         self.alpha                  = alpha
         self.alpha_v                = alpha_v
-        self.backward_steps         = backward_steps
-        self.dyna_steps             = dyna_steps
-        self.ps_steps               = ps_steps
-        self.vi_steps               = vi_steps
+        self.convergence_n          = convergence_n
+        self.convergence_eps        = convergence_eps
+        self.convergence_max        = convergence_max
         self.theta                  = theta
         self.shift_goal_ep          = shift_goal_ep
         self.shift_goal_pos         = shift_goal_pos
@@ -95,6 +93,10 @@ class QLearningAgent():
         self.ep_replay_normal       = []
         self.ep_replay_terminal     = []
 
+        # variables to track q-vals updates for episode
+        self.ep_updates_physical    = [] 
+        self.ep_updates_replay      = []
+
     def q_table_update(self, state, action, next_state, reward, terminated):
         """
         Update equation, depends on mode:
@@ -103,6 +105,9 @@ class QLearningAgent():
             3. relative:            contextual update equation
             4. relative_punish:     contextual update equation for punishment values
         """
+        # saving q_table before any update
+        old_q = self.q_table[state][action]
+
         if terminated:
             optimal_next = 0.0
         elif self.update_mode in ["opposite", "relative_punish"]:
@@ -128,6 +133,9 @@ class QLearningAgent():
                 reward - self.v_table[state] + self.gamma * optimal_next - self.q_table[state][action]
             )
 
+        # returns difference between new q-val and old one
+        return abs(self.q_table[state][action] - old_q)
+
     def epsilon_greedy(self, epsilon, state):
         """epsilon-greedy action selection policy"""
         if np.random.random() > epsilon:
@@ -140,8 +148,9 @@ class QLearningAgent():
         self.epsilon = max(self.epsilon_min, self.epsilon * self.decay_rate)
         return self.epsilon
         
-    def softmax(self, tau, state):
+    def softmax(self, beta, state):
         """softmax action selection policy with Gibbs distribution"""
+        
         q_vals = self.q_table[state]
 
         # taking max q-va lto then subtracting
@@ -149,7 +158,7 @@ class QLearningAgent():
         max_q = np.max(q_vals)
 
         # comuting softmax
-        exp_q = np.exp((q_vals - max_q) / tau)
+        exp_q = np.exp((q_vals - max_q) * beta)
         prob = exp_q / np.sum(exp_q)
 
         # returns selected action

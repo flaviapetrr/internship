@@ -405,80 +405,90 @@ def plot_replay_trajectories(agent, path="replay_trajectories.svg", grid_size=10
     print(f"[plot_replay_trajectories]      saved to -> {path}")
 
 def plot_metrics(results_dict, shift_ep=None, path="training_metrics.svg"):
-    """
-    results_dict format:
-    {
-        "config_name(update_mode and repaly_mode)": {
-            "rewards": array (num_runs, num_episodes),
-            "times": array (num_runs, num_episodes)
-        }
-    }
-    """
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 8))
+    from collections import defaultdict
     
-    colors = plt.cm.tab10(np.linspace(0, 1, len(results_dict)))
+    # Grouping data by label: "update_mode + replay_mode"
+    groups = defaultdict(dict)
+    for label, data in results_dict.items():
+        if " + " in label:
+            u_mode, r_mode = label.split(" + ")
+            groups[r_mode][u_mode] = data
+        else:
+            groups["all"][label] = data 
+
+    num_groups = len(groups)
+    cols = 2
+    rows = num_groups
+
+    fig, axes = plt.subplots(rows, cols, figsize=(16, rows * 5))
+
+    if rows == 1:
+        axes = np.expand_dims(axes, axis=0)
+
+    # creating std color palette
+    all_u_modes = sorted({u for g in groups.values() for u in g.keys()})
+    colors = plt.cm.tab10.colors[:len(all_u_modes)]
+    color_map = dict(zip(all_u_modes, colors))
+
+    # drawing plots by line
+    for i, (r_mode, group_data) in enumerate(groups.items()):
+        ax1 = axes[i, 0]
+        ax2 = axes[i, 1]
+        
+        for u_mode, data in group_data.items():
+            color = color_map[u_mode]
+            
+            # subplot 1
+            cum_rewards = np.cumsum(data["rewards"], axis=1)
+            mean_cum_rew = np.mean(cum_rewards, axis=0)
+            std_cum_rew = np.std(cum_rewards, axis=0)
+            episodes = np.arange(len(mean_cum_rew))
+            
+            ax1.plot(episodes, mean_cum_rew, label=u_mode, color=color, linewidth=2)
+            ax1.fill_between(episodes, mean_cum_rew - std_cum_rew, mean_cum_rew + std_cum_rew, color=color, alpha=0.2)
+            
+            # subplot 2
+            times = data["times"]
+            mean_times = np.mean(times, axis=0)
+            std_times = np.std(times, axis=0)
+            
+            ax2.plot(episodes, mean_times, label=u_mode, color=color, linewidth=2)
+            ax2.fill_between(episodes, mean_times - std_times, mean_times + std_times, color=color, alpha=0.2)
+
+        # subplot reward
+        ax1.set_title(f"Cumulative Reward  |  Replay: {r_mode}", fontsize=14, fontweight='bold')
+        ax1.set_xlabel("Episodes", fontsize=12)
+        ax1.set_ylabel("Cumulative Reward", fontsize=12)
+        ax1.grid(True, alpha=0.3)
+
+        # subplot time
+        ax2.set_title(f"Elapsed Time  |  Replay: {r_mode}", fontsize=14, fontweight='bold')
+        ax2.set_xlabel("Episodes", fontsize=12)
+        ax2.set_ylabel("Seconds", fontsize=12)
+        ax2.grid(True, alpha=0.3)
+
+        if shift_ep is not None:
+            ax1.axvline(shift_ep, color='black', linestyle='--', linewidth=1.5, zorder=10)
+            ax2.axvline(shift_ep, color='black', linestyle='--', linewidth=1.5, zorder=10)
+
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    #fig.subplots_adjust(bottom=0.05, hspace=0.35, wspace=0.15)
     
-    for (label, data), color in zip(results_dict.items(), colors):
-
-        # subplot 1: cumulative reward
-        # summing reward for each run
-        cum_rewards = np.cumsum(data["rewards"], axis=1)
-        #computing meand and variance
-        mean_cum_rew = np.mean(cum_rewards, axis=0)
-        std_cum_rew = np.std(cum_rewards, axis=0)
-        
-        episodes = np.arange(len(mean_cum_rew))
-        
-        # adding label once to extract it later
-        ax1.plot(episodes, mean_cum_rew, label=label, color=color, linewidth=2)
-        ax1.fill_between(episodes, mean_cum_rew - std_cum_rew, mean_cum_rew + std_cum_rew, color=color, alpha=0.2)
-        
-        # accumulated time
-        times = data["times"]
-        mean_times = np.mean(times, axis=0)
-        std_times = np.std(times, axis=0)
-        
-        ax2.plot(episodes, mean_times, label=label, color=color, linewidth=2)
-        ax2.fill_between(episodes, mean_times - std_times, mean_times + std_times, color=color, alpha=0.2)
-
-    # subplot 1
-    ax1.set_title("Cumulative Reward per Episode", fontsize=14, fontweight='bold')
-    ax1.set_xlabel("Episodes", fontsize=12)
-    ax1.set_ylabel("Cumulative Reward", fontsize=12)
-    ax1.grid(True, alpha=0.3)
-
-    # subplot 2
-    ax2.set_title("Elapsed Time per Episode", fontweight='bold')
-    ax2.set_xlabel("Episodes", fontsize=12)
-    ax2.set_ylabel("Seconds", fontsize=12)
-    ax2.grid(True, alpha=0.3)
-    #uncomment if replay takes much longer than none
-    # ax2.set_yscale('log')
-
-    if shift_ep is not None:
-        ax1.axvline(shift_ep, color='gray', linestyle='--', linewidth=2, zorder=10, label=f'Goal shift (ep {shift_ep})')
-        ax2.axvline(shift_ep, color='gray', linestyle='--', linewidth=2, zorder=10)
-
     # global labels
-    handles, labels = ax1.get_legend_handles_labels()
-    by_label = dict(zip(labels, handles))
-    
-    # 2. Invece di lottare coi margini interni, spingiamo la legenda a coordinate NEGATIVE
-    # y = -0.15 la butta fisicamente "al piano di sotto", ben distante dalla scritta "Episodes"
-    fig.legend(by_label.values(), by_label.keys(), loc='upper center', bbox_to_anchor=(0.5, -0), ncol=4, fontsize=11)
+    fig.legend(handles, labels, loc='lower center', ncol=len(all_u_modes), bbox_to_anchor=(0.5, 0.01), fontsize=12)
 
-    # 3. bbox_inches='tight' capirà che c'è roba fuori dal grafico e ALLARGHERÀ
-    # il foglio bianco verso il basso apposta per farci stare la legenda, senza schiacciare niente.
     plt.savefig(path, dpi=150, bbox_inches='tight')
     plt.close()
-    print(f"[plot_metrics]          saved to -> {path}")
+    print(f"[plot_metrics]                  saved to -> {path}")
+
 
 def plot_exploration_stats(results_dict, shift_ep=None, path="exploration_stats.svg"):
+
     num_configs = len(results_dict)
-    cols = 1
+    cols = 5
     rows = (num_configs + cols - 1) // cols
     
-    fig, axes = plt.subplots(rows, cols, figsize=(16, rows * 5))
+    fig, axes = plt.subplots(rows, cols, figsize=(40, rows * 5))
     axes = np.atleast_1d(axes).flatten()
 
     for i, (label, data) in enumerate(results_dict.items()):
@@ -497,20 +507,64 @@ def plot_exploration_stats(results_dict, shift_ep=None, path="exploration_stats.
                      labels=['Physical: Std Steps', 'Physical: Goal/Punish', 'Replay: Std Steps', 'Replay: Goal/Punish'],
                      colors=['#2ca02c', '#d62728', '#1f77b4', '#ff7f0e'], alpha=0.85)
         
-        ax.set_title(label, fontsize=12, fontweight='bold')
+        ax.set_title(label, fontsize=14, fontweight='bold')
+        ax.set_ylabel("Steps", fontsize=10)
         ax.grid(True, alpha=0.3)
         if shift_ep is not None:
-            ax.axvline(shift_ep, color='black', linestyle='--', linewidth=1.5, zorder=10)
+            ax.axvline(shift_ep, color='gray', linestyle='--', linewidth=1.5, zorder=10)
         
-    # higing unused spots
+    # hiding unused spots
     for j in range(num_configs, len(axes)):
         axes[j].set_visible(False)
         
     # global lables
     handles, labels = axes[0].get_legend_handles_labels()
     #fig.subplots_adjust(bottom=0.15, hspace=0.3, wspace=0.2)
-    fig.legend(handles, labels, loc='lower center', ncol=4, bbox_to_anchor=(0.5, 0.02), fontsize=11)
+    fig.legend(handles, labels, loc='lower center', ncol=4, bbox_to_anchor=(0.5, 0.01), fontsize=12)
     
     plt.savefig(path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"[plot_exploration_stats]        saved to -> {path}")
+
+def plot_update_stats(results_dict, shift_ep=None, path="update_stats.svg"):
+
+    num_configs = len(results_dict)
+    cols = 5
+    rows = (num_configs + cols - 1) // cols
+    
+    fig, axes = plt.subplots(rows, cols, figsize=(40, rows * 5))
+    axes = np.atleast_1d(axes).flatten()
+
+    for i, (label, data) in enumerate(results_dict.items()):
+        ax = axes[i]
+        
+        # computing means
+        m_upd_phys = np.mean(data["upd_phys"], axis=0)
+        m_upd_rep  = np.mean(data["upd_rep"], axis=0)
+        
+        episodes = np.arange(len(m_upd_phys))
+        
+        # stackplot
+        ax.stackplot(episodes, m_upd_phys, m_upd_rep,
+                     labels=['Physical Updates', 'Replay Updates'],
+                     colors=['#2ca02c', '#1f77b4'], alpha=0.85)
+        
+        ax.set_title(label, fontsize=14, fontweight='bold')
+        ax.set_ylabel("Updated States", fontsize=10)
+        ax.grid(True, alpha=0.3)
+        
+        if shift_ep is not None:
+            ax.axvline(shift_ep, color='gray', linestyle='--', linewidth=1.5, zorder=10)
+
+    # hiding unused lines
+    for j in range(num_configs, len(axes)):
+        axes[j].set_visible(False)
+        
+    # global labels
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.subplots_adjust(bottom=0.06, hspace=0.35, wspace=0.15)
+    fig.legend(handles, labels, loc='lower center', ncol=2, bbox_to_anchor=(0.5, 0.01), fontsize=12)
+    
+    plt.savefig(path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"[plot_update_stats]             saved to -> {path}")
