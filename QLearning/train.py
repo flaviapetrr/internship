@@ -115,6 +115,7 @@ class Trainer(QLearningAgent):
             
             if ep % 100 == 0:
                 self.count = np.zeros(self.state_space)
+
             for step in range(self.max_episode_steps):
                 if terminated or truncated:
                     break
@@ -128,9 +129,13 @@ class Trainer(QLearningAgent):
                 elif self.action_selection == "softmax":
                     action = self.softmax(self.beta, current_state)
 
+                ep_decision_time += (time.perf_counter() - step_start_time)
+
                 # performing selected action on the env
                 next_state, reward, terminated, truncated, _ = self.env.step(action)
-                    
+                
+                step_start_time = time.perf_counter()
+                
                 #computing TD error aka surprise for prioritized sweeping
                 if self.update_mode in ["opposite", "relative_punish"]:
                     optimal_next = np.min(self.q_table[next_state])
@@ -151,10 +156,8 @@ class Trainer(QLearningAgent):
                 if delta > 1e-8:
                     ep_upd_phys += 1
 
-                if terminated:
-                    ep_phys_term += 1
-                else:
-                    ep_phys_norm += 1
+                if terminated: ep_phys_term += 1
+                else: ep_phys_norm += 1
 
                 self.count[next_state] += 1 
                 # per-step replay
