@@ -1,4 +1,3 @@
-# conda activate /home/etu-admin/Desktop/Flavia/internship/cyu_tut
 # Gym docs: https://gymnasium.farama.org/environments/toy_text/frozen_lake/
 
 import gymnasium as gym

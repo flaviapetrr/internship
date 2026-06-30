@@ -120,7 +120,7 @@ class Trainer(QLearningAgent):
                 if terminated or truncated:
                     break
                 
-                # sarting counter
+                # starting counter
                 step_start_time = time.perf_counter()
 
                 # selecting action
@@ -137,17 +137,17 @@ class Trainer(QLearningAgent):
                 step_start_time = time.perf_counter()
                 
                 #computing TD error aka surprise for prioritized sweeping
-                if self.update_mode in ["opposite", "relative_punish"]:
-                    optimal_next = np.min(self.q_table[next_state])
-                else:
-                    optimal_next = np.max(self.q_table[next_state])
+                if self.replay_mode == "prioritized_sweeping":
+                    if self.update_mode in ["opposite", "relative_punish"]:
+                        optimal_next = np.min(self.q_table[next_state])
+                    else:
+                        optimal_next = np.max(self.q_table[next_state])
 
-                if terminated:
-                    optimal_next = 0.0
+                    if terminated:
+                        optimal_next = 0.0
 
-                target = reward + self.gamma * optimal_next
-
-                td_error = abs(target - self.q_table[current_state][action])
+                    target = reward + self.gamma * optimal_next
+                    td_error = abs(target - self.q_table[current_state][action])
 
                 # updating q_table
                 delta = self.q_table_update(current_state, action, next_state, reward, terminated)
@@ -159,97 +159,18 @@ class Trainer(QLearningAgent):
                 if terminated: ep_phys_term += 1
                 else: ep_phys_norm += 1
 
-                self.count[next_state] += 1 
-                # per-step replay
+                self.count[next_state] += 1
+
+                # if there is memory wwe save the step
+                if self.replay_mode != "none":
+                    self.buffer.store_step(current_state, action, next_state, reward, terminated)
+                
+                # if p_s also adding to priority queue
                 if self.replay_mode == "prioritized_sweeping":
-                        # updating model and predecessors
-                        self.buffer.store_step(current_state, action, next_state, reward, terminated)
-                        # pushing them according to priority
-                        self.buffer.push(td_error, current_state, action)
-                        
-                        batch = []
-                        window = []
-
-                        for _ in range(self.convergence_max):
-                            if self.buffer.is_empty():
-                                break
-                                
-                            # popping highest priority state
-                            p_state, p_action = self.buffer.pop()
-                            
-                            # getting what happened from the model
-                            p_next_state, p_reward, p_terminated = self.buffer.model[(p_state, p_action)]
-                            
-                            # updating q_table
-                            delta = self.q_table_update(p_state, p_action, p_next_state, p_reward, p_terminated)
-                            if delta > 1e-8: ep_upd_rep += 1
-                            
-                            if p_terminated: ep_rep_term += 1
-                            else: ep_rep_norm += 1
-
-                            batch.append((p_state, p_next_state))
- 
-
-                            # backpropagating to the predecessors
-                            for pred_state, pred_action, pred_reward, pred_terminated in self.buffer.predecessors[p_state]:
-                                # computing TD error
-                                if pred_terminated:
-                                    pred_opt_next = 0.0
-                                elif self.update_mode in ["opposite", "relative_punish"]:
-                                    pred_opt_next = np.min(self.q_table[p_state]) # p_state is the next_state of the predecessor
-                                else:
-                                    pred_opt_next = np.max(self.q_table[p_state])
-                                    
-                                pred_target = pred_reward + self.gamma * pred_opt_next
-                                pred_error = abs(pred_target - self.q_table[pred_state][pred_action])
-                                
-                                # pushing in line if the error is high enough
-                                self.buffer.push(pred_error, pred_state, pred_action)
-                            
-                            window.append(delta)
-                            if len(window) > self.convergence_n: 
-                                window.pop(0)
-                            if len(window) == self.convergence_n and sum(window) < self.convergence_eps:
-                                break
-                                
-                        if batch:
-                            episode_replay_batches.append(batch)
-
-                elif self.replay_mode == "dyna":
+                    self.buffer.push(td_error, current_state, action)
                 
-                    self.buffer.store_step(current_state, action, next_state, reward, terminated)
-                    
-                    batch = []
-                    window = []
-
-                    for _ in range(self.convergence_max):
-                        # randomly selects a memory
-                        d_state, d_action, d_next_state, d_reward, d_terminated = self.buffer.random_sample()
-                        
-                        # updating q_table using mental replay
-                        delta = self.q_table_update(d_state, d_action, d_next_state, d_reward, d_terminated)
-                        if delta > 1e-8: ep_upd_rep += 1
-
-                        if d_terminated: ep_rep_term += 1
-                        else: ep_rep_norm += 1
-
-                        window.append(delta)
-                        if len(window) > self.convergence_n: 
-                            window.pop(0)
-                        if len(window) == self.convergence_n and sum(window) < self.convergence_eps:
-                            break
-
-                        batch.append((d_state, d_next_state))
-
-                    episode_replay_batches.append(batch)
-                    
-                elif self.replay_mode in ["backward", "value_iteration"]:
-                
-                    self.buffer.store_step(current_state, action, next_state, reward, terminated)
-
                 # adding step time to accumulator
-                step_end_time = time.perf_counter()
-                ep_decision_time += (step_end_time - step_start_time)
+                ep_decision_time += (time.perf_counter() - step_start_time)
 
                 agent_path.append(next_state)
                 current_state = next_state
@@ -257,67 +178,102 @@ class Trainer(QLearningAgent):
 
             end_replay_start = time.perf_counter()
 
-            # end of episode replay
-            if self.replay_mode == "backward":
-                backward_trajectory = list(self.buffer.backward_traj(len(self.buffer.episode_history)))
-
+            if self.replay_mode != "none":
                 batch = []
                 window = []
-                traj_len = len(backward_trajectory)
-                    
-                for i in range(self.convergence_max):
-                    
-                    b_state, b_action, b_next_state, b_reward, b_terminated = backward_trajectory[i % traj_len]
-                    
-                    delta = self.q_table_update(b_state, b_action, b_next_state, b_reward, b_terminated)
-                    if delta > 1e-8: ep_upd_rep += 1
-                    
-                    if b_terminated: ep_rep_term += 1
-                    else: ep_rep_norm += 1
-                    
-                    batch.append((b_state, b_next_state))
-                    
-                    window.append(delta)
-                    if len(window) > self.convergence_n: 
-                        window.pop(0)
-                    if len(window) == self.convergence_n and sum(window) < self.convergence_eps:
-                        break
 
-                if batch:
-                    episode_replay_batches.append(batch)
-
-            elif self.replay_mode == "value_iteration":
-                # extracting known transitions
-                known_transitions = [
-                    (s, a, ns, r, term) for (s, a), (ns, r, term) in self.buffer.model.items()
-                ]
-
-
-                if known_transitions:
-                    batch = []
-                    window = []
-                    
+                if self.replay_mode == "prioritized_sweeping":
                     for _ in range(self.convergence_max):
-                        # randomly selecting transition from the model
-                        v_state, v_action, v_next_state, v_reward, v_terminated = random.choice(known_transitions)
-                        
-                        delta = self.q_table_update(v_state, v_action, v_next_state, v_reward, v_terminated)
-                        if delta > 1e-8: ep_upd_rep += 1
-                        
-                        if v_terminated: ep_rep_term += 1
-                        else: ep_rep_norm += 1
-                        
-                        batch.append((v_state, v_next_state))
-                        
-                        # Controllo di Convergenza
-                        window.append(delta)
-                        if len(window) > self.convergence_n: 
-                            window.pop(0)
-                        if len(window) == self.convergence_n and sum(window) < self.convergence_eps:
+                        if self.buffer.is_empty():
                             break
+                            
+                        p_state, p_action = self.buffer.pop()
+                        p_next_state, p_reward, p_terminated = self.buffer.model[(p_state, p_action)]
+                        
+                        delta = self.q_table_update(p_state, p_action, p_next_state, p_reward, p_terminated)
+                        if delta > 1e-8: ep_upd_rep += 1
+                        if p_terminated: ep_rep_term += 1
+                        else: ep_rep_norm += 1
 
-                    if batch:
-                        episode_replay_batches.append(batch)
+                        batch.append((p_state, p_next_state))
+                        
+                        # Backpropagation
+                        for pred_state, pred_action, pred_reward, pred_terminated in self.buffer.predecessors[p_state]:
+                            if pred_terminated: pred_opt_next = 0.0
+                            elif self.update_mode in ["opposite", "relative_punish"]: pred_opt_next = np.min(self.q_table[p_state])
+                            else: pred_opt_next = np.max(self.q_table[p_state])
+                                
+                            pred_target = pred_reward + self.gamma * pred_opt_next
+                            pred_error = abs(pred_target - self.q_table[pred_state][pred_action])
+                            self.buffer.push(pred_error, pred_state, pred_action)
+                        
+                        window.append(delta)
+                        if len(window) > self.convergence_n: window.pop(0)
+                        if len(window) == self.convergence_n and sum(window) < self.convergence_eps: break
+                            
+                    if batch: episode_replay_batches.append(batch)
+
+                elif self.replay_mode == "dyna":
+                    if self.buffer.size() > 0:
+                        for _ in range(self.convergence_max):
+                            d_state, d_action, d_next_state, d_reward, d_terminated = self.buffer.random_sample()
+                            
+                            delta = self.q_table_update(d_state, d_action, d_next_state, d_reward, d_terminated)
+                            if delta > 1e-8: ep_upd_rep += 1
+                            if d_terminated: ep_rep_term += 1
+                            else: ep_rep_norm += 1
+
+                            batch.append((d_state, d_next_state))
+
+                            window.append(delta)
+                            if len(window) > self.convergence_n: window.pop(0)
+                            if len(window) == self.convergence_n and sum(window) < self.convergence_eps: break
+
+                        if batch: episode_replay_batches.append(batch)
+
+                elif self.replay_mode == "backward":
+                    backward_trajectory = list(self.buffer.backward_traj(len(self.buffer.episode_history)))
+                    traj_len = len(backward_trajectory)
+                    
+                    if traj_len > 0:
+                        for i in range(self.convergence_max):
+                            b_state, b_action, b_next_state, b_reward, b_terminated = backward_trajectory[i % traj_len]
+                            
+                            delta = self.q_table_update(b_state, b_action, b_next_state, b_reward, b_terminated)
+                            if delta > 1e-8: ep_upd_rep += 1
+                            if b_terminated: ep_rep_term += 1
+                            else: ep_rep_norm += 1
+                            
+                            batch.append((b_state, b_next_state))
+                            
+                            window.append(delta)
+                            if len(window) > self.convergence_n: window.pop(0)
+                            if len(window) == self.convergence_n and sum(window) < self.convergence_eps: break
+
+                        if batch: episode_replay_batches.append(batch)
+
+                elif self.replay_mode == "value_iteration":
+                    known_transitions = [
+                        (s, a, ns, r, term) for (s, a), (ns, r, term) in self.buffer.model.items()
+                    ]
+
+                    if known_transitions:
+                        import random # Sicurezza
+                        for _ in range(self.convergence_max):
+                            v_state, v_action, v_next_state, v_reward, v_terminated = random.choice(known_transitions)
+                            
+                            delta = self.q_table_update(v_state, v_action, v_next_state, v_reward, v_terminated)
+                            if delta > 1e-8: ep_upd_rep += 1
+                            if v_terminated: ep_rep_term += 1
+                            else: ep_rep_norm += 1
+                            
+                            batch.append((v_state, v_next_state))
+                            
+                            window.append(delta)
+                            if len(window) > self.convergence_n: window.pop(0)
+                            if len(window) == self.convergence_n and sum(window) < self.convergence_eps: break
+
+                        if batch: episode_replay_batches.append(batch)
                 
             # adding end of episode replay time to the counter
             ep_decision_time += (time.perf_counter() - end_replay_start)

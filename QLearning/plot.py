@@ -568,3 +568,418 @@ def plot_update_stats(results_dict, shift_ep=None, path="update_stats.svg"):
     plt.savefig(path, dpi=150, bbox_inches='tight')
     plt.close()
     print(f"[plot_update_stats]             saved to -> {path}")
+
+def plot_reward_mix(results_dict, shift_ep=None, eps=None, action_select=None, beta=None, num_run=None, path="training_metrics.svg"):
+    fig, ax1 = plt.subplots(1, 1, figsize=(16, 8))
+
+    colors = plt.cm.tab10.colors[:max(10, len(results_dict))]
+    
+    for i, (label, data) in enumerate(results_dict.items()):
+        if " + " in label:
+            u_mode, r_mode = label.split(" + ")
+            leg_label = f"{u_mode}  |  {r_mode}"
+        else:
+            leg_label = label
+
+        cum_rewards = np.cumsum(data["rewards"], axis=1)
+        mean_cum_rew = np.mean(cum_rewards, axis=0)
+        std_cum_rew = np.std(cum_rewards, axis=0)
+        episodes = np.arange(len(mean_cum_rew))
+        
+        ax1.plot(episodes, mean_cum_rew, label=leg_label, color=colors[i], linewidth=2.5)
+        ax1.fill_between(episodes, mean_cum_rew - std_cum_rew, mean_cum_rew + std_cum_rew, color=colors[i], alpha=0.15)
+    
+    specs_list = ["Cumulative Reward\n"]
+    if eps is not None: specs_list.append(f"Episodes: {eps}  ")
+    if action_select: specs_list.append(f"|  Action: {action_select}  ")
+    if beta is not None: specs_list.append(f"|  Beta: {beta}  ")
+    if num_run is not None: specs_list.append(f"|  N. runs: {num_run}")
+    
+    title = "".join(specs_list)
+    ax1.set_title(title, fontsize=16, fontweight='bold', pad=25)
+    
+    ax1.set_xlabel("Episodes", fontsize=12)
+    ax1.set_ylabel("Cumulative Reward", fontsize=12)
+    ax1.grid(True, alpha=0.3)
+
+    if shift_ep is not None:
+        ax1.axvline(shift_ep, color='gray', linestyle='--', linewidth=1.5, zorder=10, label=f"Goal Shift (ep {shift_ep})")
+
+    handles, labels = ax1.get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+
+    fig.subplots_adjust(bottom=0.25)
+    
+    fig.legend(
+        by_label.values(), 
+        by_label.keys(), 
+        loc='upper center', 
+        ncol=2,
+        bbox_to_anchor=(0.5, 0.12), 
+        fontsize=12
+    )
+
+    plt.savefig(path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"[plot_reward]                   saved to -> {path}")
+
+def plot_combined_replay_trajectories_mix(agents_dict, shift_ep=None, eps=None, action_select=None, beta=None, num_runs=None, path="combined_replays.png", grid_size=10, only_one=True):
+    import matplotlib.gridspec as gridspec
+
+    heatmap_cmap = plt.colormaps['Greys']
+    replay_cmap = plt.colormaps['Blues']
+    JITTER_VAL = 0.2
+
+    target_keys = ["first_goal", "first_new_goal"]
+    nrows = len(agents_dict)
+    ncols = len(target_keys)
+
+    fig = plt.figure(figsize=(12, nrows * 6))
+
+    gs_main = gridspec.GridSpec(1, 2, width_ratios=[0.5, 20], figure=fig, 
+                                wspace=0.10, left=0.08, right=0.95, bottom=0.05, top=0.85)
+
+    gs_cb = gridspec.GridSpecFromSubplotSpec(2, 1, subplot_spec=gs_main[0], hspace=0.2)
+    cax_q = fig.add_subplot(gs_cb[0, 0])
+    cax_r = fig.add_subplot(gs_cb[1, 0])
+
+    gs_plots = gridspec.GridSpecFromSubplotSpec(nrows, ncols, subplot_spec=gs_main[1], wspace=0.05, hspace=0.25)
+
+    axes = np.empty((nrows, ncols), dtype=object)
+
+    for row_idx, (u_mode, agent) in enumerate(agents_dict.items()):
+        shifted = agent.shift_happened_ep is not None
+        initial_desc = getattr(agent, 'initial_desc', agent.env.unwrapped.desc.astype(str))
+        vmin, vmax = (0.0, 1.0) if agent.mode in ["std", "relative"] else (-1.0, 0.0)
+
+        r_label = agent.replay_mode
+
+        for col_idx, key in enumerate(target_keys):
+            ax = fig.add_subplot(gs_plots[row_idx, col_idx])
+            axes[row_idx, col_idx] = ax
+
+            if key not in agent.q_snapshots:
+                ax.set_visible(False)
+                continue
+
+            ep, qtable, desc, batches, agent_path = agent.q_snapshots[key]
+
+            nr = _heatmap(
+                agent, grid_size, desc, initial_desc, ax, q_table=qtable, 
+                shifted=shifted, vmin=vmin, vmax=vmax, cmap=heatmap_cmap, alpha=0.8, 
+                show_text=False, show_cbar=False, zorder=1
+            )
+            
+            for i in range(grid_size + 1):
+                ax.axhline(i - 0.5, color="#A1A1A1", lw=1.0, alpha=0.6, zorder=2)
+                ax.axvline(i - 0.5, color='#A1A1A1', lw=1.0, alpha=0.6, zorder=2)
+
+            if len(agent_path) > 1:
+                px = [s % grid_size for s in agent_path]
+                py = [s // grid_size for s in agent_path]
+                jx = np.array(px, float) + np.random.uniform(-0.1, 0.1, len(px))
+                jy = np.array(py, float) + np.random.uniform(-0.1, 0.1, len(py))
+                ax.plot(jx, jy, color="#8C3AA5", alpha=0.7, linewidth=1.5, linestyle='--', zorder=3)
+
+            if batches and agent.replay_mode == "backward" and only_one:
+                batches = [max(batches, key=len)]
+            elif batches and agent.replay_mode in ["dyna", "prioritized_sweeping", "value_iteration"] and only_one:
+                batches = [batches[-1]]
+            
+            node_x = {st: (st % grid_size) + np.random.uniform(-JITTER_VAL, JITTER_VAL) for st in range(agent.state_space)}
+            node_y = {st: (st // grid_size) + np.random.uniform(-JITTER_VAL, JITTER_VAL) for st in range(agent.state_space)}
+            
+            for batch in batches:
+                b_len = len(batch)
+                if b_len == 0: continue
+
+                if agent.replay_mode in ["dyna", "value_iteration"]:
+                    for i, (s, ns) in enumerate(batch):
+                        t = i / max(b_len - 1, 1) 
+                        dyna_color = replay_cmap(t)
+                        sx, sy = node_x[s], node_y[s]
+                        nsx, nsy = node_x[ns], node_y[ns]
+                        if s == ns: 
+                            ax.scatter(sx, sy, s=30, color=dyna_color, alpha=0.8, zorder=5)
+                        else:
+                            ax.annotate('', xy=(nsx, nsy), xytext=(sx, sy),
+                                        arrowprops=dict(arrowstyle="-|>", color=dyna_color, lw=1.8, mutation_scale=9, shrinkA=0, shrinkB=0),
+                                        zorder=4)
+                else:
+                    first_s = batch[0][0]
+                    ax.scatter(node_x[first_s], node_y[first_s], marker='x', s=60, color=replay_cmap(0.0), alpha=1.0, zorder=7, linewidths=2.5)
+                    lines, line_colors, static_x, static_y, static_c, end_x, end_y, end_c = [], [], [], [], [], [], [], []
+                    
+                    for i, (s, ns) in enumerate(batch):
+                        t = i / max(b_len - 1, 1) 
+                        color = replay_cmap(t)
+                        sx, sy = node_x[s], node_y[s]
+                        nsx, nsy = node_x[ns], node_y[ns]
+
+                        if s == ns: 
+                            static_x.append(sx)
+                            static_y.append(sy)
+                            static_c.append(color)
+                        else:
+                            lines.append([(sx, sy), (nsx, nsy)])
+                            line_colors.append(color)
+                            end_x.append(nsx)
+                            end_y.append(nsy)
+                            end_c.append(color)
+                    
+                    if static_x: ax.scatter(static_x, static_y, s=30, c=static_c, alpha=0.9, zorder=5)
+                    if lines:
+                        lc = LineCollection(lines, colors=line_colors, alpha=0.8, linewidths=3.0, capstyle='round', zorder=4)
+                        ax.add_collection(lc)
+                    if end_x: ax.scatter(end_x, end_y, s=15, c=end_c, alpha=1.0, zorder=5)
+
+            # Titolo personalizzato CON AGGIUNTA DEL REPLAY MODE
+            label_text = LABEL_MAP.get(key, key)
+            ax.set_title(f"[{u_mode}  |  {r_label}]\n{label_text} (ep {ep})", fontsize=14, fontweight='bold', pad=15)
+
+    specs_list = []
+    specs_list.append(f"Replay Trajectories  |  Goal shift: ep {shift_ep}\n")
+    if eps is not None: specs_list.append(f"Episodes: {eps}  ")
+    if action_select: specs_list.append(f"|  Action: {action_select}  ")
+    if beta is not None: specs_list.append(f"|  Beta: {beta}  ")
+    
+    title = "".join(specs_list) if specs_list else None
+    if title:
+        fig.suptitle(title, fontsize=16, fontweight='bold', y=0.93)
+
+    sm_q = plt.cm.ScalarMappable(cmap=heatmap_cmap, norm=SymLogNorm(linthresh=0.01, vmin=vmin, vmax=vmax, base=10))
+    cb_q = fig.colorbar(sm_q, cax=cax_q)
+    cax_q.yaxis.set_ticks_position('left')
+    cax_q.yaxis.set_label_position('left')
+    cb_q.set_label("Background: Q-Value", rotation=90, labelpad=10, fontsize=10, fontweight='bold')
+
+    sm_r = plt.cm.ScalarMappable(cmap=replay_cmap, norm=plt.Normalize(vmin=0, vmax=1))
+    cb_r = fig.colorbar(sm_r, cax=cax_r)
+    cax_r.yaxis.set_ticks_position('left')
+    cax_r.yaxis.set_label_position('left')
+    cb_r.set_label("Replay Sequence (timesteps)", rotation=90, labelpad=10, fontsize=10, fontweight='bold')
+    cb_r.set_ticks([0, 1])
+    cb_r.set_ticklabels(['Start', 'End'])
+
+    plt.savefig(path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"[plot_combined_replay_trajectories] saved to -> {path}")
+
+def plot_reward(results_dict, shift_ep=None, eps=None, action_select=None, beta=None, num_run=None, path="training_metrics.svg"):
+    from collections import defaultdict
+    
+    # grouping data by label: "update_mode + replay_mode"
+    groups = defaultdict(dict)
+    for label, data in results_dict.items():
+        if " + " in label:
+            u_mode, r_mode = label.split(" + ")
+            groups[r_mode][u_mode] = data
+        else:
+            groups["all"][label] = data 
+
+    num_groups = len(groups)
+    cols = 1
+    rows = num_groups
+
+    fig, axes = plt.subplots(rows, cols, figsize=(16, rows * 8))
+
+    if rows == 1:
+        axes = np.expand_dims(axes, axis=0)
+
+    # creating std color palette
+    all_u_modes = sorted({u for g in groups.values() for u in g.keys()})
+    colors = plt.cm.tab10.colors[:len(all_u_modes)]
+    color_map = dict(zip(all_u_modes, colors))
+
+    # drawing plots by line
+    for i, (r_mode, group_data) in enumerate(groups.items()):
+        ax1 = axes[i]
+        
+        for u_mode, data in group_data.items():
+            color = color_map[u_mode]
+            
+            # subplot 1
+            cum_rewards = np.cumsum(data["rewards"], axis=1)
+            mean_cum_rew = np.mean(cum_rewards, axis=0)
+            std_cum_rew = np.std(cum_rewards, axis=0)
+            episodes = np.arange(len(mean_cum_rew))
+            
+            ax1.plot(episodes, mean_cum_rew, label=u_mode, color=color, linewidth=2)
+            ax1.fill_between(episodes, mean_cum_rew - std_cum_rew, mean_cum_rew + std_cum_rew, color=color, alpha=0.2)
+        
+        specs_list = []
+    
+        
+        specs_list.append(f"Cumulative Reward  |  Replay: {r_mode}\n")
+        if eps is not None: specs_list.append(f"Episodes: {eps}  ")
+        if action_select: specs_list.append(f"|  Action: {action_select}  ")
+        if beta is not None: specs_list.append(f"|  Beta: {beta}  ")
+        if num_run is not None: specs_list.append(f"|  N. runs: {num_run}")
+        title = "".join(specs_list) if specs_list else None
+        ax1.set_title(title, fontsize=16, fontweight='bold', pad=25)
+        
+        ax1.set_xlabel("Episodes", fontsize=12)
+        ax1.set_ylabel("Cumulative Reward", fontsize=12)
+        ax1.grid(True, alpha=0.3)
+
+        if shift_ep is not None:
+            ax1.axvline(shift_ep, color='gray', linestyle='--', linewidth=1.5, zorder=10, label=f"Goal Shift (ep {shift_ep})")
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    by_label = dict(zip(labels, handles))
+  
+    fig.subplots_adjust(bottom=0.25)
+    
+    fig.legend(
+        by_label.values(), 
+        by_label.keys(), 
+        loc='upper center', 
+        ncol=len(by_label), 
+        bbox_to_anchor=(0.5, 0.12), 
+        fontsize=12,
+        title_fontproperties={'weight':'bold', 'size':12}
+    )
+
+    plt.savefig(path, dpi=150, bbox_inches='tight')
+    plt.close()
+    print(f"[plot_metrics]                  saved to -> {path}")
+
+def plot_combined_replay_trajectories(agents_dict, r_mode="prioritized_sweeping", shift_ep=None, eps=None, action_select=None, beta=None, num_runs=None, path="combined_replays.png", grid_size=10, only_one=True):
+    import matplotlib.gridspec as gridspec
+
+    heatmap_cmap = plt.colormaps['Greys']
+    replay_cmap = plt.colormaps['Blues']
+    JITTER_VAL = 0.2
+
+    target_keys = ["first_goal", "first_new_goal"]
+    nrows = len(agents_dict)
+    ncols = len(target_keys)
+
+    fig = plt.figure(figsize=(12, nrows * 6))
+
+    gs_main = gridspec.GridSpec(1, 2, width_ratios=[0.5, 20], figure=fig, 
+                                wspace=0.10, left=0.08, right=0.95, bottom=0.05, top=0.85)
+
+    gs_cb = gridspec.GridSpecFromSubplotSpec(2, 1, subplot_spec=gs_main[0], hspace=0.2)
+    cax_q = fig.add_subplot(gs_cb[0, 0])
+    cax_r = fig.add_subplot(gs_cb[1, 0])
+
+    gs_plots = gridspec.GridSpecFromSubplotSpec(nrows, ncols, subplot_spec=gs_main[1], wspace=0.05, hspace=0.25)
+
+    axes = np.empty((nrows, ncols), dtype=object)
+
+    for row_idx, (u_mode, agent) in enumerate(agents_dict.items()):
+        shifted = agent.shift_happened_ep is not None
+        initial_desc = getattr(agent, 'initial_desc', agent.env.unwrapped.desc.astype(str))
+        vmin, vmax = (0.0, 1.0) if agent.mode in ["std", "relative"] else (-1.0, 0.0)
+
+        for col_idx, key in enumerate(target_keys):
+            # Crea e assegna l'asse al posto giusto nella griglia
+            ax = fig.add_subplot(gs_plots[row_idx, col_idx])
+            axes[row_idx, col_idx] = ax
+
+            if key not in agent.q_snapshots:
+                ax.set_visible(False)
+                continue
+
+            ep, qtable, desc, batches, agent_path = agent.q_snapshots[key]
+
+            nr = _heatmap(
+                agent, grid_size, desc, initial_desc, ax, q_table=qtable, 
+                shifted=shifted, vmin=vmin, vmax=vmax, cmap=heatmap_cmap, alpha=0.8, 
+                show_text=False, show_cbar=False, zorder=1
+            )
+
+            for i in range(grid_size + 1):
+                ax.axhline(i - 0.5, color="#A1A1A1", lw=1.0, alpha=0.6, zorder=2)
+                ax.axvline(i - 0.5, color='#A1A1A1', lw=1.0, alpha=0.6, zorder=2)
+
+            if len(agent_path) > 1:
+                px = [s % grid_size for s in agent_path]
+                py = [s // grid_size for s in agent_path]
+                jx = np.array(px, float) + np.random.uniform(-0.1, 0.1, len(px))
+                jy = np.array(py, float) + np.random.uniform(-0.1, 0.1, len(py))
+                ax.plot(jx, jy, color="#8C3AA5", alpha=0.7, linewidth=1.5, linestyle='--', zorder=3)
+
+            if batches and agent.replay_mode == "backward" and only_one:
+                batches = [max(batches, key=len)]
+            elif batches and agent.replay_mode in ["dyna", "prioritized_sweeping", "value_iteration"] and only_one:
+                batches = [batches[-1]]
+
+            node_x = {st: (st % grid_size) + np.random.uniform(-JITTER_VAL, JITTER_VAL) for st in range(agent.state_space)}
+            node_y = {st: (st // grid_size) + np.random.uniform(-JITTER_VAL, JITTER_VAL) for st in range(agent.state_space)}
+            
+            for batch in batches:
+                b_len = len(batch)
+                if b_len == 0: continue
+
+                if agent.replay_mode in ["dyna", "value_iteration"]:
+                    for i, (s, ns) in enumerate(batch):
+                        t = i / max(b_len - 1, 1) 
+                        dyna_color = replay_cmap(t)
+                        sx, sy = node_x[s], node_y[s]
+                        nsx, nsy = node_x[ns], node_y[ns]
+                        if s == ns: 
+                            ax.scatter(sx, sy, s=30, color=dyna_color, alpha=0.8, zorder=5)
+                        else:
+                            ax.annotate('', xy=(nsx, nsy), xytext=(sx, sy),
+                                        arrowprops=dict(arrowstyle="-|>", color=dyna_color, lw=1.8, mutation_scale=9, shrinkA=0, shrinkB=0),
+                                        zorder=4)
+                else:
+                    first_s = batch[0][0]
+                    ax.scatter(node_x[first_s], node_y[first_s], marker='x', s=60, color=replay_cmap(0.0), alpha=1.0, zorder=7, linewidths=2.5)
+                    lines, line_colors, static_x, static_y, static_c, end_x, end_y, end_c = [], [], [], [], [], [], [], []
+                    
+                    for i, (s, ns) in enumerate(batch):
+                        t = i / max(b_len - 1, 1) 
+                        color = replay_cmap(t)
+                        sx, sy = node_x[s], node_y[s]
+                        nsx, nsy = node_x[ns], node_y[ns]
+
+                        if s == ns: 
+                            static_x.append(sx)
+                            static_y.append(sy)
+                            static_c.append(color)
+                        else:
+                            lines.append([(sx, sy), (nsx, nsy)])
+                            line_colors.append(color)
+                            end_x.append(nsx)
+                            end_y.append(nsy)
+                            end_c.append(color)
+                    
+                    if static_x: ax.scatter(static_x, static_y, s=30, c=static_c, alpha=0.9, zorder=5)
+                    if lines:
+                        lc = LineCollection(lines, colors=line_colors, alpha=0.8, linewidths=3.0, capstyle='round', zorder=4)
+                        ax.add_collection(lc)
+                    if end_x: ax.scatter(end_x, end_y, s=15, c=end_c, alpha=1.0, zorder=5)
+
+            label_text = LABEL_MAP.get(key, key)
+            ax.set_title(f"[{u_mode}]\n{label_text} (ep {ep})", fontsize=14, fontweight='bold', pad=15)
+
+    specs_list = []
+    specs_list.append(f"Replay Trajectories\nReplay: {r_mode}\n  |  Goal shift: ep {shift_ep}\n")
+    if eps is not None: specs_list.append(f"Episodes: {eps}  ")
+    if action_select: specs_list.append(f"|  Action: {action_select}  ")
+    if beta is not None: specs_list.append(f"|  Beta: {beta}  ")
+    
+    title = "".join(specs_list) if specs_list else None
+    if title:
+        fig.suptitle(title, fontsize=16, fontweight='bold', y=0.95)
+
+    sm_q = plt.cm.ScalarMappable(cmap=heatmap_cmap, norm=SymLogNorm(linthresh=0.01, vmin=vmin, vmax=vmax, base=10))
+    cb_q = fig.colorbar(sm_q, cax=cax_q)
+    cax_q.yaxis.set_ticks_position('left')
+    cax_q.yaxis.set_label_position('left')
+    cb_q.set_label("Background: Q-Value", rotation=90, labelpad=10, fontsize=10, fontweight='bold')
+
+    sm_r = plt.cm.ScalarMappable(cmap=replay_cmap, norm=plt.Normalize(vmin=0, vmax=1))
+    cb_r = fig.colorbar(sm_r, cax=cax_r)
+    cax_r.yaxis.set_ticks_position('left')
+    cax_r.yaxis.set_label_position('left')
+    cb_r.set_label("Replay Sequence (timesteps)", rotation=90, labelpad=10, fontsize=10, fontweight='bold')
+    cb_r.set_ticks([0, 1])
+    cb_r.set_ticklabels(['Start', 'End'])
+
+    plt.savefig(path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"[plot_combined_replay_trajectories] saved to -> {path}")

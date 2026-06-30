@@ -1,4 +1,3 @@
-# conda activate /home/etu-admin/Desktop/Flavia/internship/cyu_tut
 # Gym docs: https://gymnasium.farama.org/environments/toy_text/frozen_lake/
 
 import gymnasium as gym
@@ -7,11 +6,13 @@ import math
 import random
 from train import Trainer
 from agent import CustomRewardWrapper
-from plot import plot_qvalue_snapshots, plot_replay_trajectories, plot_metrics, plot_exploration_stats, plot_update_stats
+from plot import plot_qvalue_snapshots, plot_replay_trajectories, plot_metrics, plot_exploration_stats, plot_update_stats, plot_reward, plot_combined_replay_trajectories, plot_reward_mix, plot_combined_replay_trajectories_mix
 
 UPDATE_MODES = ["std", "std_punish", "opposite", "relative", "relative_punish"]    
 REPLAY_MODES = ["none", "prioritized_sweeping", "value_iteration", "backward", "dyna"]
 ACTION_MODES = ["epsilon_greedy", "softmax"]
+PUNISH_MODES = ["std_punish", "opposite", "relative_punish"]
+
 # --------------- CONFIG ---------------
 UPDATE_MODE         = UPDATE_MODES[4]
 REPLAY_MODE         = REPLAY_MODES[1]
@@ -148,117 +149,129 @@ if __name__ == "__main__":
     init_obs_count = OBSTACLES_COUNT if ADD_OBS_EP == 0 else 0
 
 #    for UPDATE_MODE in UPDATE_MODES:
-#        for REPLAY_MODE in REPLAY_MODES:
-#            env, env_kwargs, initial_obstacles = make_env(UPDATE_MODE, obstacles_count=init_obs_count)
-#            agent = make_agent(env, UPDATE_MODE, REPLAY_MODE, ACTION_SELECT, initial_obstacles)
-#            
-#            agent.training()
+#        env, env_kwargs, initial_obstacles = make_env(UPDATE_MODE, obstacles_count=init_obs_count)
+#        agent = make_agent(env, UPDATE_MODE, REPLAY_MODE, ACTION_SELECT, initial_obstacles)
+#        
+#        agent.training()
 #
-#            plot_qvalue_snapshots(
+#        plot_qvalue_snapshots(
+#            agent,
+#            path=f"{OUTDIR}/heatmaps/{UPDATE_MODE}/{UPDATE_MODE}_{REPLAY_MODE}{SHIFTDIR}{OBSDIR}.svg",
+#            grid_size=GRID_SIZE,
+#        )
+#
+#        if REPLAY_MODE != "none":
+#            plot_replay_trajectories(
 #                agent,
-#                path=f"{OUTDIR}/heatmaps/{UPDATE_MODE}/{UPDATE_MODE}_{REPLAY_MODE}{SHIFTDIR}{OBSDIR}.svg",
+#                path=f"{OUTDIR}/replay_trajs/{UPDATE_MODE}/{UPDATE_MODE}_{REPLAY_MODE}{SHIFTDIR}{OBSDIR}.svg",
 #                grid_size=GRID_SIZE,
+#                key_moments=True,
+#                only_one=True,
 #            )
-#
-#            if REPLAY_MODE != "none":
-#                plot_replay_trajectories(
-#                    agent,
-#                    path=f"{OUTDIR}/replay_trajs/{UPDATE_MODE}/{UPDATE_MODE}_{REPLAY_MODE}{SHIFTDIR}{OBSDIR}.svg",
-#                    grid_size=GRID_SIZE,
-#                    key_moments=True,
-#                    only_one=True,
-#                )
 
-#    punish_test = [
-#        ("std_punish", "none"),
-#        ("std_punish", "backward"),
-#        ("std_punish", "dyna"),
-#        ("std_punish", "prioritized_sweeping"),
-#        ("std_punish", "value_iteration"),
-#        ("opposite", "none"),
-#        ("opposite", "backward"),
-#        ("opposite", "dyna"),
-#        ("opposite", "prioritized_sweeping"),
-#        ("opposite", "value_iteration"),
-#        ("relative_punish", "none"),
-#        ("relative_punish", "backward"),
-#        ("relative_punish", "dyna"),
-#        ("relative_punish", "prioritized_sweeping"),
-#        ("relative_punish", "value_iteration")
-#    ]
-
-    punish_mode = ["std_punish", "opposite", "relative_punish"]
-    NUM_RUNS = 5
+    NUM_RUNS = 10
     results = {} # dictionary to accumulate results
+    agents_to_plot = {} # to save last run for replay traj plot
+    
+    # defining testing couples
+    CONFIGS = [
+        ("std_punish", "prioritized_sweeping"),
+        ("opposite", "prioritized_sweeping"),
+        ("relative_punish", "prioritized_sweeping")
+    ]
 
-    for u_mode in punish_mode:
-        for r_mode in REPLAY_MODES:
-            label = f"{u_mode} + {r_mode}"
-            print(f"\n{'='*100}\nCONFIG: {label}\n{'='*100}")
+    for u_mode, r_mode in CONFIGS:
+        label = f"{u_mode} + {r_mode}"
+        print(f"\n{'='*120}\nCONFIG: {label}\n{'='*120}")
+        
+        # initializing matrices to store cumulative results
+        all_rewards = np.zeros((NUM_RUNS, TRAINING_EPS))
+        all_times = np.zeros((NUM_RUNS, TRAINING_EPS))
+        
+        all_phys_norm = np.zeros((NUM_RUNS, TRAINING_EPS))
+        all_phys_term = np.zeros((NUM_RUNS, TRAINING_EPS))
+        all_rep_norm = np.zeros((NUM_RUNS, TRAINING_EPS))
+        all_rep_term = np.zeros((NUM_RUNS, TRAINING_EPS))
+
+        all_upd_phys = np.zeros((NUM_RUNS, TRAINING_EPS))
+        all_upd_rep = np.zeros((NUM_RUNS, TRAINING_EPS))
+
+        for run in range(NUM_RUNS):
+            print(f"\n--- RUN {run+1}/{NUM_RUNS} ---\n")
             
-            # initializing matrices to store cumulative results
-            all_rewards = np.zeros((NUM_RUNS, TRAINING_EPS))
-            all_times = np.zeros((NUM_RUNS, TRAINING_EPS))
+            env, env_kwargs, initial_obstacles = make_env(u_mode, obstacles_count=init_obs_count)
             
-            all_phys_norm = np.zeros((NUM_RUNS, TRAINING_EPS))
-            all_phys_term = np.zeros((NUM_RUNS, TRAINING_EPS))
-            all_rep_norm = np.zeros((NUM_RUNS, TRAINING_EPS))
-            all_rep_term = np.zeros((NUM_RUNS, TRAINING_EPS))
+            agent = make_agent(env, u_mode, r_mode, ACTION_SELECT, initial_obstacles)
+            agent.training()
+            
+            # saving results of current run
+            all_rewards[run, :] = agent.episode_rewards
+            all_times[run, :] = agent.episode_times
 
-            all_upd_phys = np.zeros((NUM_RUNS, TRAINING_EPS))
-            all_upd_rep = np.zeros((NUM_RUNS, TRAINING_EPS))
+            all_phys_norm[run, :] = agent.ep_physical_normal
+            all_phys_term[run, :] = agent.ep_physical_terminal
+            all_rep_norm[run, :] = agent.ep_replay_normal
+            all_rep_term[run, :] = agent.ep_replay_terminal
+            
+            all_upd_phys[run, :] = agent.ep_updates_physical
+            all_upd_rep[run, :] = agent.ep_updates_replay
 
-            for run in range(NUM_RUNS):
-                print(f"\n--- RUN {run+1}/{NUM_RUNS} ---\n")
-                
-                env, env_kwargs, initial_obstacles = make_env(u_mode, obstacles_count=init_obs_count)
-                
-                agent = make_agent(env, u_mode, r_mode, ACTION_SELECT, initial_obstacles)
-                
-                agent.training()
-                
-                # saving results of current run
-                all_rewards[run, :] = agent.episode_rewards
-                all_times[run, :] = agent.episode_times
+            print(f"Physical reached goals: {sum(agent.ep_physical_terminal)}")
+            env.close()
 
-                all_phys_norm[run, :] = agent.ep_physical_normal
-                all_phys_term[run, :] = agent.ep_physical_terminal
-                all_rep_norm[run, :] = agent.ep_replay_normal
-                all_rep_term[run, :] = agent.ep_replay_terminal
-                
-                all_upd_phys[run, :] = agent.ep_updates_physical
-                all_upd_rep[run, :] = agent.ep_updates_replay
-
-                print(f"Physical reached goals: {sum(agent.ep_physical_terminal)}")
-                env.close()
-                
-            # saving complete matrix in the dictionary
-            results[label] = {
-                "rewards": all_rewards,
-                "times": all_times,
-                "phys_norm": all_phys_norm,
-                "phys_term": all_phys_term,
-                "rep_norm": all_rep_norm,
-                "rep_term": all_rep_term,
-                "upd_phys": all_upd_phys,
-                "upd_rep": all_upd_rep
-            }
+            # saving last run for plot
+            if run == NUM_RUNS - 1:
+                agents_to_plot[u_mode] = agent
+            
+        # saving complete matrix in the dictionary
+        results[label] = {
+            "rewards": all_rewards,
+            "times": all_times,
+            "phys_norm": all_phys_norm,
+            "phys_term": all_phys_term,
+            "rep_norm": all_rep_norm,
+            "rep_term": all_rep_term,
+            "upd_phys": all_upd_phys,
+            "upd_rep": all_upd_rep
+        }
             
 # plot
-plot_metrics(
+#plot_metrics(
+#    results, 
+#    shift_ep=SHIFT_GOAL_EP, 
+#    path=f"{OUTDIR}/comparison_metrics.png"
+#)
+#
+#plot_exploration_stats(
+#    results,
+#    shift_ep=SHIFT_GOAL_EP,
+#    path=f"{OUTDIR}/exploration_stats_plot.svg"
+#)
+#
+#plot_update_stats(
+#    results,
+#    shift_ep=SHIFT_GOAL_EP,
+#    path=f"{OUTDIR}/update_stats_plot.svg"
+#)
+
+plot_reward(
     results, 
-    shift_ep=SHIFT_GOAL_EP, 
-    path=f"{OUTDIR}/comparison_metrics_plot.svg"
+    shift_ep=SHIFT_GOAL_EP,
+    eps=TRAINING_EPS,
+    action_select=ACTION_SELECT,
+    beta=BETA,
+    num_run=NUM_RUNS,
+    path=f"{OUTDIR}/comparison_metrics_plot_ps_punish.png"
 )
 
-plot_exploration_stats(
-    results,
+plot_combined_replay_trajectories(
+    agents_to_plot,
+    eps=TRAINING_EPS,
     shift_ep=SHIFT_GOAL_EP,
-    path=f"{OUTDIR}/exploration_stats_plot.svg"
-)
-
-plot_update_stats(
-    results,
-    shift_ep=SHIFT_GOAL_EP,
-    path=f"{OUTDIR}/update_stats_plot.svg"
+    action_select=ACTION_SELECT,
+    beta=BETA,
+    num_runs=NUM_RUNS,
+    path=f"{OUTDIR}/combined_replays_ps_punish.png",
+    grid_size=GRID_SIZE,
+    only_one=True
 )
