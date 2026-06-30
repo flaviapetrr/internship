@@ -87,6 +87,7 @@ A Model-Based mechanism designed for continuous background planning. It stores a
 1. Clone the repository:
     ```bash
     git clone https://github.com/flaviapetrr/internship.git
+    cd internship
     ```
 2. Navigate to the `QLearning` directory:
     ```bash
