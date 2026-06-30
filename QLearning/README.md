@@ -110,6 +110,3 @@ A Model-Based mechanism designed for continuous background planning. It stores a
 * **Hippocampal Replay & Prioritized Planning:**
     * Mattar, M. G., & Daw, N. D. (2018). Prioritized memory access explains planning and hippocampal replay. *Nature Neuroscience*, 21(11), 1609-1617.
     * Cazé, R., Khamassi, M., Lise, A., & Girard, B. (2018). Hippocampal replays under the scrutiny of reinforcement learning models. *Journal of Neurophysiology*, 120(6), 2877-2896.
-## License
-
-This project is licensed under the MIT License. See the `LICENSE` file for details.
